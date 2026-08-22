@@ -1,0 +1,241 @@
+// Dynamics 365 Level Up Extension - Content Script
+console.log('[D365-Ext] Content script active on page:', window.location.href);
+
+function collectOptionSetValues() {
+  return (async () => {
+    try {
+      console.log('[D365-Ext] Starting option set collection');
+      
+      // Helper function to extract clean field name
+      function extractFieldName(element) {
+        // Try data attributes first
+        if (element.dataset.fieldName) return element.dataset.fieldName;
+        if (element.dataset.field) return element.dataset.field;
+        if (element.dataset.name) return element.dataset.name;
+        
+        // Try aria-label
+        const ariaLabel = element.getAttribute('aria-label');
+        if (ariaLabel) {
+          return ariaLabel.split(' ')[0].toLowerCase();
+        }
+        
+        // Try title attribute
+        if (element.title) {
+          return element.title.split(' ')[0].toLowerCase();
+        }
+        
+        // Parse from ID: extract field name from patterns like "id-...-fieldName-fieldName.fieldControl..."
+        if (element.id) {
+          const idParts = element.id.split('-');
+          // Look for repeated field names
+          for (let i = 0; i < idParts.length - 1; i++) {
+            if (idParts[i] === idParts[i + 1] && !idParts[i].includes('id')) {
+              return idParts[i];
+            }
+          }
+          // Alternative: look for names before ".fieldControl"
+          const match = element.id.match(/([a-z_]\w*)-\1\.fieldControl/);
+          if (match) return match[1];
+        }
+        
+        // Use name attribute
+        if (element.name) {
+          const nameParts = element.name.split('_');
+          if (nameParts.length > 0) return nameParts[0];
+          return element.name;
+        }
+        
+        // Fallback
+        return element.id || 'field_' + Math.random().toString(36).substr(2, 9);
+      }
+      
+      // Helper function to format field label
+      function formatLabel(fieldName) {
+        const lower = fieldName.toLowerCase();
+        if (lower === 'statecode') return 'State Code';
+        if (lower === 'statuscode') return 'Status Code';
+        return fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      }
+      
+      // Helper function to collect options from various element types
+      function collectOptions(element) {
+        const options = [];
+        
+        // Standard select element
+        if (element.tagName === 'SELECT') {
+          return Array.from(element.options || []).map(opt => ({
+            value: opt.value,
+            text: opt.text,
+            isSelected: opt.selected
+          }));
+        }
+        
+        // Look for option elements within (for custom controls)
+        const optionElements = element.querySelectorAll('[role="option"], option');
+        if (optionElements.length > 0) {
+          return Array.from(optionElements).map(opt => ({
+            value: opt.getAttribute('data-value') || opt.value || opt.textContent,
+            text: opt.getAttribute('data-label') || opt.textContent || opt.text,
+            isSelected: opt.classList.contains('selected') || opt.selected || false
+          }));
+        }
+        
+        return [];
+      }
+      
+      const domResults = [];
+      const seenNames = new Set();
+      
+      // 1. Collect from standard select elements
+      const selectElements = Array.from(document.querySelectorAll('select'));
+      console.log('[D365-Ext] Found', selectElements.length, 'select elements');
+      
+      for (const select of selectElements) {
+        if ((select.options || []).length > 0) {
+          const fieldName = extractFieldName(select);
+          if (!seenNames.has(fieldName.toLowerCase())) {
+            domResults.push({
+              name: fieldName,
+              label: formatLabel(fieldName),
+              type: 'select',
+              currentValue: select.value,
+              options: collectOptions(select)
+            });
+            seenNames.add(fieldName.toLowerCase());
+          }
+        }
+      }
+      
+      // 2. Search for elements containing "statecode" or "statuscode" in ANY attribute
+      const stateStatusFields = ['statecode', 'statuscode'];
+      const allElements = document.querySelectorAll('*');
+      console.log('[D365-Ext] Searching through', allElements.length, 'elements for statecode/statuscode');
+      
+      // First, log what we find
+      const elementsWithStateCode = Array.from(allElements).filter(el => {
+        const allAttrs = Array.from(el.attributes || [])
+          .map(attr => (attr.name + '=' + attr.value).toLowerCase())
+          .join(' ');
+        return allAttrs.includes('statecode') || allAttrs.includes('statuscode');
+      });
+      console.log('[D365-Ext] Found', elementsWithStateCode.length, 'elements mentioning statecode/statuscode');
+      elementsWithStateCode.forEach((el, idx) => {
+        console.log(`  [${idx}]`, el.tagName, 'id:', el.id, 'class:', el.className, 'name:', el.name);
+      });
+      
+      for (const fieldName of stateStatusFields) {
+        const fieldNameLower = fieldName.toLowerCase();
+        if (seenNames.has(fieldNameLower)) continue;
+        
+        let found = false;
+        
+        // Search through all elements for any that mention this field
+        for (const el of allElements) {
+          const allAttrs = Array.from(el.attributes || [])
+            .map(attr => (attr.name + '=' + attr.value).toLowerCase())
+            .join(' ');
+          
+          if (allAttrs.includes(fieldNameLower)) {
+            console.log(`[D365-Ext] Found element with ${fieldName}:`, el.tagName, el.className, el.id);
+            
+            // Check if it's a select or has options
+            if (el.tagName === 'SELECT') {
+              const options = Array.from(el.options || []).map(opt => ({
+                value: opt.value,
+                text: opt.text,
+                isSelected: opt.selected
+              }));
+              
+              if (options.length > 0) {
+                domResults.push({
+                  name: fieldName,
+                  label: formatLabel(fieldName),
+                  type: 'select',
+                  currentValue: el.value,
+                  options: options
+                });
+                seenNames.add(fieldNameLower);
+                found = true;
+                break;
+              }
+            }
+            
+            // Check for nested options
+            const optElements = el.querySelectorAll('[role="option"], option, .option-item');
+            if (optElements.length > 0) {
+              const options = Array.from(optElements).map(opt => ({
+                value: opt.getAttribute('data-value') || opt.getAttribute('data-key') || opt.textContent.split('|')[0].trim(),
+                text: opt.textContent.trim(),
+                isSelected: opt.classList.contains('is-selected') || opt.classList.contains('selected') || opt.selected
+              }));
+              
+              if (options.length > 0) {
+                domResults.push({
+                  name: fieldName,
+                  label: formatLabel(fieldName),
+                  type: 'control',
+                  currentValue: el.querySelector('input')?.value || '',
+                  options: options
+                });
+                seenNames.add(fieldNameLower);
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (!found) {
+          console.log(`[D365-Ext] ${fieldName} not found in any element`);
+        }
+      }
+      
+      console.log('[D365-Ext] Found', domResults.length, 'total option set fields');
+      
+      return {
+        url: location.href,
+        hasXrm: false,
+        optionSets: domResults,
+        errors: [],
+        diagnostics: {
+          method: 'DOM_SCRAPING',
+          found: domResults.length,
+          selectCount: selectElements.length
+        }
+      };
+      
+    } catch (error) {
+      console.error('[D365-Ext] Error during collection:', error.message, error.stack);
+      
+      return {
+        url: location.href,
+        hasXrm: false,
+        optionSets: [],
+        errors: ['Failed to collect option sets: ' + error.message],
+        diagnostics: {
+          method: 'ERROR',
+          error: error.message
+        }
+      };
+    }
+  })();
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message && message.action === 'getOptionSetValues') {
+    (async () => {
+      try {
+        const result = await collectOptionSetValues();
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({
+          url: location.href,
+          hasXrm: false,
+          optionSets: [],
+          errors: [error.message]
+        });
+      }
+    })();
+    return true;
+  }
+});

@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Power Pilot</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef3ff;
+        --panel-bg: rgba(255, 255, 255, 0.88);
+        --border: #d7e3ff;
+        --text: #17253f;
+        --muted: #5c6f93;
+        --primary: #2546a1;
+        --primary-strong: #1a3b8b;
+        --surface: #ffffff;
+        --surface-soft: #f8fbff;
+      }
+
+      html {
+        width: 420px;
+        min-width: 420px;
+        max-width: 420px;
+        overflow: hidden;
+        background: linear-gradient(135deg, #e4efff 0%, #f4f8ff 100%);
+        border-radius: 24px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 16px;
+        width: 420px;
+        min-width: 420px;
+        max-width: 420px;
+        min-height: 520px;
+        font-family: "Segoe UI", Inter, system-ui, sans-serif;
+        background: linear-gradient(135deg, #e4efff 0%, #f4f8ff 100%);
+        border-radius: 24px;
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      .panel {
+        width: 100%;
+        background: linear-gradient(135deg, rgba(220, 235, 255, 0.75) 0%, rgba(253, 254, 255, 0.85) 50%, rgba(245, 248, 252, 0.9) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: 0 16px 40px rgba(12, 24, 60, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+        border-radius: 24px;
+        padding: 20px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.05;
+        font-weight: 750;
+        color: #202a5c;
+        letter-spacing: 0.01em;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .close-btn {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #ebf1fa;
+        color: #202a5c;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex: 0 0 auto;
+        transition: 0.2s ease;
+      }
+
+      .close-btn:hover {
+        background: #dce5f8;
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #7784b0;
+      }
+
+      .toolbar-row {
+        margin-bottom: 6px;
+      }
+
+
+
+      .sub-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 12px 0 8px;
+      }
+
+      .sub-header span {
+        font-size: 13px;
+        font-weight: 600;
+        color: #7784b0;
+      }
+
+      .sub-header-line {
+        flex: 1;
+        height: 1px;
+        background: #e2e8f4;
+      }
+
+      .action-grid-2col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .action-grid-1col {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      select,
+      input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface);
+        min-height: 32px;
+        font-size: 12px;
+        padding: 6px 10px;
+        color: #2a3958;
+        outline: none;
+        font-family: inherit;
+      }
+
+      select:focus,
+      input:focus {
+        border-color: #8ab2ff;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+      }
+
+      input::placeholder {
+        font-size: 13px;
+        color: #94a5c5;
+      }
+
+      .search-container {
+        position: relative;
+        margin-bottom: 12px;
+        margin-top: 12px;
+      }
+
+      .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #7f99c2;
+      }
+
+      input#searchInput {
+        padding-left: 32px;
+        background-color: #8daedb;
+        background-image: 
+          linear-gradient(rgba(255, 255, 255, 0.25) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.25) 1px, transparent 1px);
+        background-size: 12px 12px;
+        border: 1px solid #7a9ccb;
+        color: #17345e;
+        border-radius: 999px;
+        height: 34px;
+      }
+      
+      input#searchInput::placeholder {
+        color: rgba(23, 52, 94, 0.65);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: #2b50a1;
+        color: #fff;
+        min-height: 34px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.2;
+        letter-spacing: 0.01em;
+        padding: 6px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: 0.18s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        white-space: nowrap;
+        font-family: inherit;
+      }
+
+      .btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(43, 80, 161, 0.3);
+      }
+
+      .btn[aria-pressed="true"] {
+        background: #5a6b82;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 4px 12px rgba(90, 107, 130, 0.3);
+      }
+
+      .btn:disabled {
+        opacity: 0.62;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      .badge-new {
+        background: #95d4f3;
+        color: #174261;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 8px;
+        margin-left: 8px;
+      }
+
+      .status {
+        margin: 2px 0 10px;
+        padding: 10px 12px;
+        background: #f7fbff;
+        border: 1px solid #dce8ff;
+        border-radius: 14px;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      
+      .results-container {
+        position: relative;
+      }
+
+      .results {
+        max-height: min(52vh, 320px);
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+
+      .floating-btn {
+        position: absolute;
+        bottom: 0px;
+        right: 0px;
+        z-index: 10;
+        box-shadow: 0 6px 16px rgba(133, 149, 199, 0.3);
+        background: linear-gradient(135deg, #e4efff 0%, #f4f8ff 100%);
+        color: #1e3a8a;
+        border: 1px solid #c8dbf4;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 6px 12px;
+        min-height: 30px;
+      }
+      
+      .floating-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #d8e8fc 0%, #edf4ff 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(133, 149, 199, 0.4);
+      }
+
+      .empty-state {
+        color: #64779b;
+        padding: 18px 14px;
+        border: 1px dashed #bfd4f8;
+        border-radius: 12px;
+        background: var(--surface-soft);
+        text-align: center;
+        font-size: 13px;
+      }
+
+      /* table styles and rest of CSS kept as is but adjusted slightly for colors */
+      .table-card {
+        margin-bottom: 12px;
+        background: var(--surface);
+        border: 1px solid #dce6fb;
+        border-radius: 14px;
+        box-shadow: 0 4px 14px rgba(34, 58, 104, 0.05);
+        overflow: hidden;
+      }
+
+      .table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 13px 14px 8px;
+      }
+
+      .table-title {
+        margin: 0;
+        font-size: clamp(15px, 4vw, 18px);
+        line-height: 1.2;
+        font-weight: 700;
+        color: #19355f;
+      }
+
+      .columns-info {
+        margin: 0 0 8px;
+        padding: 0 14px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #4d628a;
+      }
+
+      .columns-info strong {
+        font-weight: 600;
+        color: #24385a;
+      }
+
+      .copyable-text {
+        border: none;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 600;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .copyable-text:hover {
+        color: var(--primary-strong);
+        text-decoration: underline;
+      }
+
+      .copyable-schema {
+        color: #24385a;
+        text-align: left;
+      }
+
+      .copyable-value {
+        width: 100%;
+        text-align: inherit;
+        white-space: nowrap;
+      }
+
+      .copy-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #90b4ef;
+        background: linear-gradient(180deg, #ffffff 0%, #e9f2ff 100%);
+        color: #1f5eb4;
+        border-radius: 9px;
+        min-height: 34px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+
+      .copy-btn:hover {
+        background: linear-gradient(180deg, #ffffff 0%, #dfeeff 100%);
+      }
+
+      .table-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      table {
+        width: max-content;
+        border-collapse: collapse;
+        min-width: 100%;
+      }
+
+      th,
+      td {
+        border-top: 1px solid #e8eefb;
+        text-align: left;
+        font-size: 12px;
+        line-height: 1.35;
+        padding: 9px 12px;
+        vertical-align: top;
+        color: #2a3d5e;
+      }
+
+      th {
+        font-size: 11px;
+        font-weight: 700;
+        color: #27426d;
+        background: #f6faff;
+      }
+
+      th.name-col,
+      td.name-col {
+        width: auto;
+        white-space: nowrap;
+      }
+
+      th.mid-col,
+      td.mid-col,
+      th.value-col,
+      td.value-col {
+        width: 1%;
+        white-space: nowrap;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .current-row {
+        background: #eff5ff;
+      }
+
+      .current-pill {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #d8e9ff;
+        color: #1f5eb4;
+        font-size: 10px;
+        font-weight: 700;
+        vertical-align: middle;
+      }
+
+      .error {
+        margin: 8px 0 10px;
+        padding: 10px 12px;
+        border: 1px solid #f4c0c0;
+        background: #fff1f1;
+        border-radius: 10px;
+        color: #a73737;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .inspector-layout {
+        display: grid;
+        gap: 12px;
+      }
+
+      .section-card {
+        background: var(--surface);
+        border: 1px solid #dbe6fb;
+        border-radius: 14px;
+        box-shadow: 0 6px 20px rgba(34, 58, 104, 0.08);
+        overflow: hidden;
+      }
+
+      .section-card + .section-card {
+        margin-top: 0;
+      }
+
+      .section-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 13px 14px 10px;
+        border-bottom: 1px solid #e8eefb;
+        background: #f8fbff;
+      }
+
+      .section-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+        color: #19355f;
+      }
+
+      .section-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: #dbeafe;
+        color: #1d4ed8;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .plugin-list {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .plugin-list-item {
+        display: block;
+        width: 100%;
+        border: 1px solid #dbe6fb;
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition: 0.18s ease;
+      }
+
+      .plugin-list-item:hover {
+        border-color: #9dc0ff;
+        background: #f8fbff;
+      }
+
+      .plugin-list-item.active {
+        border-color: #2563eb;
+        background: #eff6ff;
+        box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+      }
+
+      .plugin-list-title {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #17345e;
+      }
+
+      .plugin-list-meta {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #61749a;
+      }
+
+      .plugin-detail {
+        padding: 12px;
+      }
+
+      .plugin-detail-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .plugin-detail-heading {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .plugin-detail-actions {
+        flex: 0 0 auto;
+      }
+
+      .plugin-detail-title {
+        margin: 0 0 4px;
+        font-size: 16px;
+        font-weight: 750;
+        color: #17345e;
+      }
+
+      .plugin-detail-subtitle {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.45;
+        color: #5f7399;
+        word-break: break-word;
+      }
+
+      .detail-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .detail-row {
+        display: grid;
+        gap: 3px;
+        padding: 9px 10px;
+        border: 1px solid #e6eefc;
+        border-radius: 10px;
+        background: #fbfdff;
+      }
+
+      .detail-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #7284a7;
+      }
+
+      .detail-value {
+        font-size: 12px;
+        line-height: 1.45;
+        color: #203555;
+        word-break: break-word;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #eaf2ff;
+        color: #1f4f99;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .step-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .step-card {
+        border: 1px solid #dbe6fb;
+        border-radius: 12px;
+        background: #fff;
+        padding: 12px;
+      }
+
+      .step-title {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #17345e;
+      }
+
+      .step-meta-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .subsection-title {
+        margin: 14px 0 8px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #26436e;
+      }
+
+      .solution-list,
+      .image-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .solution-item,
+      .image-item {
+        padding: 9px 10px;
+        border: 1px solid #e6eefc;
+        border-radius: 10px;
+        background: #fbfdff;
+      }
+
+      .solution-item strong,
+      .image-item strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 12px;
+        color: #17345e;
+      }
+
+      .solution-item span,
+      .image-item span {
+        display: block;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #61749a;
+        word-break: break-word;
+      }
+
+      @media (max-width: 390px) {
+        html {
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+        }
+
+        body {
+          width: 100%;
+          min-height: 0;
+          padding: 8px;
+          min-width: 0;
+          max-width: none;
+        }
+
+        .panel {
+          border-radius: 14px;
+          padding: 12px;
+        }
+
+        .action-grid-2col, .action-grid-1col,
+        .search-row {
+          grid-template-columns: 1fr;
+        }
+
+        .table-header {
+          align-items: stretch;
+        }
+
+        .results {
+          max-height: min(58vh, 420px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="title-row">
+        <h1>
+          Power Pilot
+          <img src="icons/aeroplane.png" alt="Aeroplane Icon" width="22" height="22" style="display: block;">
+        </h1>
+        <button id="closeButton" class="close-btn" aria-label="Close">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <label class="label" for="entitySelect">ENTITY</label>
+      <div class="toolbar-row">
+        <select id="entitySelect" aria-label="Entity"></select>
+      </div>
+
+      
+      <div class="sub-header">
+        <span>Form Management</span>
+        <div class="sub-header-line"></div>
+      </div>
+      <div class="action-grid-1col">
+        <button id="toggleSchemaNamesButton" class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          <span>Show Schema Names</span>
+        </button>
+      </div>
+
+      <div class="sub-header">
+        <span>Field Management</span>
+        <div class="sub-header-line"></div>
+      </div>
+      <div class="action-grid-2col">
+        <button id="enableLockedFieldsButton" class="btn" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
+          <span>Enable Fields</span>
+        </button>
+        <button id="makeRequiredOptionalButton" class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <span>Disable Mandatory</span>
+        </button>
+        <button id="toggleHiddenFieldsButton" class="btn" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <span>Show Hidden Fields</span>
+        </button>
+        <button id="refreshButton" class="btn" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+          <span>Option Set</span>
+        </button>
+      </div>
+
+      <div class="sub-header">
+        <span>General Actions</span>
+        <div class="sub-header-line"></div>
+      </div>
+      <div class="action-grid-1col">
+        <button id="pluginExplorerButton" class="btn" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>Plugin Explorer</span>
+        </button>
+        <button id="toggleOobPluginsButton" class="btn" aria-pressed="false" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          <span>Show OOB Plugins <span class="badge-new">new</span></span>
+        </button>
+      </div>
+
+      <div class="search-container">
+        <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input
+          id="searchInput"
+          type="text"
+          placeholder="Search items or schema names..."
+          aria-label="Search items or schema names..."
+        />
+      </div>
+
+      <div class="status" id="status">Open a Dynamics 365 form, then click Option Set.</div>
+      <div id="errors"></div>
+      
+      <div class="results-container">
+        <div id="results" class="results">
+          <div class="empty-state">No option set tables loaded yet.</div>
+        </div>
+        <button id="copyAllButton" class="btn floating-btn" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          COPY ALL
+        </button>
+      </div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
