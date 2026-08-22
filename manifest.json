@@ -24,12 +24,16 @@
     "scripting"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://*.dynamics.com/*",
+    "https://*.powerapps.com/*",
+    "https://*.dynamics.microsoft.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://*.dynamics.com/*",
+        "https://*.powerapps.com/*",
+        "https://*.dynamics.microsoft.com/*"
       ],
       "js": ["content-script.js"],
       "run_at": "document_idle",
