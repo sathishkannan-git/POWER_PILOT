@@ -13,6 +13,7 @@ const enableLockedFieldsButton = document.getElementById('enableLockedFieldsButt
 const toggleHiddenFieldsButton = document.getElementById('toggleHiddenFieldsButton');
 const makeRequiredOptionalButton = document.getElementById('makeRequiredOptionalButton');
 const toggleSchemaNamesButton = document.getElementById('toggleSchemaNamesButton');
+const toggleHiddenSectionsButton = document.getElementById('toggleHiddenSectionsButton');
 const searchInput = document.getElementById('searchInput');
 const closeButton = document.getElementById('closeButton');
 
@@ -25,6 +26,7 @@ const state = {
   fieldsUnlocked: false,
   hiddenFieldsVisible: false,
   mandatoryFieldsDisabled: false,
+  hiddenSectionsVisible: false,
   currentView: '',
   plugins: [],
   selectedPluginId: '',
@@ -55,6 +57,7 @@ enableLockedFieldsButton.addEventListener('click', toggleEnableFieldsOnPage);
 toggleHiddenFieldsButton.addEventListener('click', toggleHiddenFieldsOnPage);
 makeRequiredOptionalButton.addEventListener('click', toggleMandatoryFieldsOnPage);
 toggleSchemaNamesButton.addEventListener('click', toggleSchemaNamesOnPage);
+toggleHiddenSectionsButton.addEventListener('click', toggleHiddenSectionsOnPage);
 resultsElement.addEventListener('click', handleResultsClick);
 searchInput.addEventListener('input', (event) => {
   state.searchText = String(event.target.value || '').trim().toLowerCase();
@@ -71,6 +74,7 @@ updateSchemaNamesButton();
 updateEnableFieldsButton();
 updateHiddenFieldsButton();
 updateMandatoryFieldsButton();
+updateHiddenSectionsButton();
 updateModeButtons();
 updateShowOobPluginsButton();
 updateSearchPlaceholder();
@@ -106,11 +110,13 @@ async function loadEntityOnLaunch() {
     state.fieldsUnlocked = !!entityDetails.fieldsUnlocked;
     state.hiddenFieldsVisible = !!entityDetails.hiddenFieldsVisible;
     state.mandatoryFieldsDisabled = !!entityDetails.mandatoryFieldsDisabled;
+    state.hiddenSectionsVisible = !!entityDetails.hiddenSectionsVisible;
     hydrateEntitySelect(state.selectedEntity);
     updateSchemaNamesButton();
     updateEnableFieldsButton();
     updateHiddenFieldsButton();
     updateMandatoryFieldsButton();
+    updateHiddenSectionsButton();
     updateCopyAllButtonState();
 
     if (entityDetails.errors.length > 0) {
@@ -130,11 +136,13 @@ async function loadEntityOnLaunch() {
     state.fieldsUnlocked = false;
     state.hiddenFieldsVisible = false;
     state.mandatoryFieldsDisabled = false;
+    state.hiddenSectionsVisible = false;
     hydrateEntitySelect('Unknown Entity');
     updateSchemaNamesButton();
     updateEnableFieldsButton();
     updateHiddenFieldsButton();
     updateMandatoryFieldsButton();
+    updateHiddenSectionsButton();
     updateCopyAllButtonState();
     renderErrors([]);
     setStatus('Unable to load entity: ' + message);
@@ -150,6 +158,7 @@ function mergeEntityResponses(responses, fallbackUrl) {
   let fieldsUnlocked = false;
   let hiddenFieldsVisible = false;
   let mandatoryFieldsDisabled = false;
+  let hiddenSectionsVisible = false;
 
   responses.forEach((response) => {
     if (!entityName && response?.entityName) {
@@ -160,6 +169,7 @@ function mergeEntityResponses(responses, fallbackUrl) {
     fieldsUnlocked = fieldsUnlocked || !!response?.fieldsUnlocked;
     hiddenFieldsVisible = hiddenFieldsVisible || !!response?.hiddenFieldsVisible;
     mandatoryFieldsDisabled = mandatoryFieldsDisabled || !!response?.mandatoryFieldsDisabled;
+    hiddenSectionsVisible = hiddenSectionsVisible || !!response?.hiddenSectionsVisible;
 
     if (Array.isArray(response?.errors)) {
       errors.push(...response.errors);
@@ -173,6 +183,7 @@ function mergeEntityResponses(responses, fallbackUrl) {
     fieldsUnlocked,
     hiddenFieldsVisible,
     mandatoryFieldsDisabled,
+    hiddenSectionsVisible,
     errors: dedupeStrings(errors)
   };
 }
@@ -235,6 +246,7 @@ function setActionButtonsDisabled(isDisabled) {
   toggleHiddenFieldsButton.disabled = isDisabled;
   makeRequiredOptionalButton.disabled = isDisabled;
   toggleSchemaNamesButton.disabled = isDisabled;
+  toggleHiddenSectionsButton.disabled = isDisabled;
   toggleOobPluginsButton.disabled = isDisabled || state.currentView !== 'plugins';
   copyAllButton.disabled = isDisabled || !canUseCopyAll();
 }
@@ -261,6 +273,11 @@ function updateMandatoryFieldsButton() {
   const span = makeRequiredOptionalButton.querySelector('span');
   if (span) span.textContent = state.mandatoryFieldsDisabled ? 'Restore Mandatory' : 'Disable Mandatory';
   makeRequiredOptionalButton.setAttribute('aria-pressed', state.mandatoryFieldsDisabled ? 'true' : 'false');
+}
+
+function updateHiddenSectionsButton() {
+  // Button label stays "Show Hidden Sections"; aria-pressed reflects the toggle state.
+  toggleHiddenSectionsButton.setAttribute('aria-pressed', state.hiddenSectionsVisible ? 'true' : 'false');
 }
 
 function updateModeButtons() {
@@ -488,10 +505,70 @@ async function toggleSchemaNamesOnPage() {
   }
 }
 
+async function toggleHiddenSectionsOnPage() {
+  const shouldEnable = !state.hiddenSectionsVisible;
+  setStatus(shouldEnable ? 'Showing hidden sections on the form...' : 'Restoring hidden sections on the form...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: toggleHiddenSectionsOnForm,
+      args: [shouldEnable]
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    if (responses.length === 0) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics form page.');
+    }
+
+    const merged = mergeHiddenSectionToggleResponses(responses);
+    if (!merged.hasXrm) {
+      throw new Error('Xrm is not available. Open a Dynamics 365 record form and try again.');
+    }
+
+    state.hiddenSectionsVisible = !!merged.hiddenSectionsVisible;
+    updateHiddenSectionsButton();
+
+    if (merged.errors.length > 0) {
+      renderErrors(merged.errors);
+    } else {
+      renderErrors([]);
+    }
+
+    if (merged.hiddenSectionsVisible) {
+      setStatus(
+        merged.changedCount > 0
+          ? `Revealed ${merged.changedCount} hidden section(s) on the current page.`
+          : 'No hidden sections were found on this form.'
+      );
+    } else {
+      setStatus(
+        merged.changedCount > 0
+          ? `Restored ${merged.changedCount} hidden section(s) to their original visibility.`
+          : 'Hidden sections are restored to their original state.'
+      );
+    }
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderErrors([message]);
+    setStatus('Unable to toggle hidden sections: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
 async function closePopupWithReset() {
   errorsElement.innerHTML = '';
 
-  if (!state.schemaNamesVisible && !state.fieldsUnlocked && !state.hiddenFieldsVisible && !state.mandatoryFieldsDisabled) {
+  if (!state.schemaNamesVisible && !state.fieldsUnlocked && !state.hiddenFieldsVisible && !state.mandatoryFieldsDisabled && !state.hiddenSectionsVisible) {
     window.close();
     return;
   }
@@ -511,10 +588,12 @@ async function closePopupWithReset() {
     state.fieldsUnlocked = false;
     state.hiddenFieldsVisible = false;
     state.mandatoryFieldsDisabled = false;
+    state.hiddenSectionsVisible = false;
     updateSchemaNamesButton();
     updateEnableFieldsButton();
     updateHiddenFieldsButton();
     updateMandatoryFieldsButton();
+    updateHiddenSectionsButton();
     updateCopyAllButtonState();
     renderErrors(merged.errors || []);
     window.close();
@@ -596,8 +675,25 @@ async function resetPersistentPageModes(tabId) {
     throw new Error('Xrm is not available. Open a Dynamics 365 record form and try again.');
   }
 
+  const hiddenSectionsFrameResults = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    world: 'MAIN',
+    func: toggleHiddenSectionsOnForm,
+    args: [false]
+  });
+
+  const hiddenSectionsResponses = hiddenSectionsFrameResults.map((frame) => frame.result).filter(Boolean);
+  if (hiddenSectionsResponses.length === 0) {
+    throw new Error('No response from any frame. Make sure you are on a Dynamics form page.');
+  }
+
+  const mergedHiddenSections = mergeHiddenSectionToggleResponses(hiddenSectionsResponses);
+  if (!mergedHiddenSections.hasXrm) {
+    throw new Error('Xrm is not available. Open a Dynamics 365 record form and try again.');
+  }
+
   return {
-    errors: dedupeStrings([...(mergedSchema.errors || []), ...(mergedFields.errors || []), ...(mergedHidden.errors || []), ...(mergedMandatory.errors || [])])
+    errors: dedupeStrings([...(mergedSchema.errors || []), ...(mergedFields.errors || []), ...(mergedHidden.errors || []), ...(mergedMandatory.errors || []), ...(mergedHiddenSections.errors || [])])
   };
 }
 
@@ -702,6 +798,36 @@ function mergeHiddenFieldToggleResponses(responses) {
     hiddenFieldsVisible,
     changedCount: changedFieldNames.size,
     changedFieldNames: Array.from(changedFieldNames),
+    errors: dedupeStrings(errors)
+  };
+}
+
+function mergeHiddenSectionToggleResponses(responses) {
+  const changedSectionNames = new Set();
+  const errors = [];
+  let hasXrm = false;
+  let hiddenSectionsVisible = false;
+
+  responses.forEach((response) => {
+    hasXrm = hasXrm || !!response.hasXrm;
+    hiddenSectionsVisible = hiddenSectionsVisible || !!response.hiddenSectionsVisible;
+
+    (response.changedFieldNames || []).forEach((sectionName) => {
+      if (sectionName) {
+        changedSectionNames.add(String(sectionName));
+      }
+    });
+
+    if (Array.isArray(response.errors)) {
+      errors.push(...response.errors);
+    }
+  });
+
+  return {
+    hasXrm,
+    hiddenSectionsVisible,
+    changedCount: changedSectionNames.size,
+    changedFieldNames: Array.from(changedSectionNames),
     errors: dedupeStrings(errors)
   };
 }
@@ -2601,6 +2727,341 @@ function toggleHiddenFieldsOnForm(shouldEnable) {
   }
 }
 
+function toggleHiddenSectionsOnForm(shouldEnable) {
+  try {
+    const sectionStateKey = '__powerPilotHiddenSectionState__';
+    const sectionMarkerClass = 'power-pilot-hidden-section-revealed';
+    const sectionStyleId = 'power-pilot-hidden-section-style';
+
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {
+          // Ignore cross-origin exceptions
+        }
+      }
+      return null;
+    }
+
+    function getActiveFormContext(xrmRoot) {
+      if (xrmRoot && xrmRoot.Page && xrmRoot.Page.ui && xrmRoot.Page.ui.tabs) {
+        return xrmRoot.Page;
+      }
+
+      return null;
+    }
+
+    function getItems(collection) {
+      if (!collection || typeof collection.get !== 'function') {
+        return [];
+      }
+
+      return collection.get() || [];
+    }
+
+    function ensureMarkerStyle(doc) {
+      if (!doc || !doc.head || doc.getElementById(sectionStyleId)) {
+        return;
+      }
+
+      const style = doc.createElement('style');
+      style.id = sectionStyleId;
+      style.textContent = `
+        .${sectionMarkerClass} {
+          outline: 1px dashed #f59e0b !important;
+          outline-offset: 2px !important;
+          border-radius: 4px !important;
+        }
+      `;
+      doc.head.appendChild(style);
+    }
+
+    function escapeAttributeValue(value) {
+      return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    function findSectionContainers(sectionName) {
+      if (!sectionName || !document.querySelectorAll) {
+        return [];
+      }
+
+      ensureMarkerStyle(document);
+      const escapedName = escapeAttributeValue(sectionName);
+      const selectors = [
+        `[data-id="${escapedName}"]`,
+        `[data-id*="${escapedName}"]`
+      ];
+      const seen = new Set();
+      const containers = [];
+
+      selectors.forEach((selector) => {
+        let nodes = [];
+        try {
+          nodes = Array.from(document.querySelectorAll(selector));
+        } catch (e) {
+          nodes = [];
+        }
+
+        nodes.forEach((node) => {
+          const container = node.closest('section') || node;
+          if (!seen.has(container)) {
+            seen.add(container);
+            containers.push(container);
+          }
+        });
+      });
+
+      return containers;
+    }
+
+    function markSectionContainer(sectionName) {
+      findSectionContainers(sectionName).forEach((node) => {
+        node.classList.add(sectionMarkerClass);
+      });
+    }
+
+    function unmarkSectionContainer(sectionName) {
+      findSectionContainers(sectionName).forEach((node) => {
+        node.classList.remove(sectionMarkerClass);
+      });
+    }
+
+    function clearAllMarkers() {
+      Array.from(document.querySelectorAll(`.${sectionMarkerClass}`)).forEach((node) => {
+        node.classList.remove(sectionMarkerClass);
+      });
+    }
+
+    function getItemName(item) {
+      return typeof item?.getName === 'function' ? item.getName() : '';
+    }
+
+    function buildTabLocator(tab, index) {
+      return {
+        index,
+        name: getItemName(tab)
+      };
+    }
+
+    function buildSectionLocator(section, tabIndex, sectionIndex) {
+      return {
+        tabIndex,
+        sectionIndex,
+        name: getItemName(section)
+      };
+    }
+
+    function dedupeLocators(locators, keySelector) {
+      const seen = new Set();
+      return (locators || []).filter((locator) => {
+        const key = keySelector(locator);
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function findTabByLocator(tabs, locator) {
+      if (locator && Number.isInteger(locator.index) && tabs[locator.index]) {
+        return tabs[locator.index];
+      }
+
+      if (locator && locator.name) {
+        const matches = tabs.filter((tab) => getItemName(tab) === locator.name);
+        if (matches.length === 1) {
+          return matches[0];
+        }
+      }
+
+      return null;
+    }
+
+    function findSectionByLocator(tabs, locator) {
+      if (locator && Number.isInteger(locator.tabIndex)) {
+        const tab = tabs[locator.tabIndex];
+        if (tab) {
+          const sections = getItems(tab.sections);
+          if (Number.isInteger(locator.sectionIndex) && sections[locator.sectionIndex]) {
+            return sections[locator.sectionIndex];
+          }
+        }
+      }
+
+      if (locator && locator.name) {
+        const matches = [];
+        tabs.forEach((tab) => {
+          getItems(tab?.sections).forEach((section) => {
+            if (getItemName(section) === locator.name) {
+              matches.push(section);
+            }
+          });
+        });
+
+        if (matches.length === 1) {
+          return matches[0];
+        }
+      }
+
+      return null;
+    }
+
+    const xrm = getXrmRoot();
+    const formContext = getActiveFormContext(xrm);
+    if (!formContext) {
+      return {
+        hasXrm: false,
+        hiddenSectionsVisible: false,
+        changedFieldNames: [],
+        errors: []
+      };
+    }
+
+    const tabs = getItems(formContext?.ui?.tabs);
+    const tabLookup = new WeakMap();
+    tabs.forEach((tab, tabIndex) => {
+      if (tab && typeof tab === 'object') {
+        tabLookup.set(tab, tabIndex);
+      }
+    });
+
+    const existingState = window[sectionStateKey] || {
+      enabled: false,
+      revealedSections: [],
+      revealedTabs: []
+    };
+    const changedFieldNames = new Set();
+    const revealedSections = [];
+    const revealedTabs = [];
+    const errors = [];
+
+    if (shouldEnable) {
+      tabs.forEach((tab, tabIndex) => {
+        const sections = getItems(tab?.sections);
+
+        sections.forEach((section, sectionIndex) => {
+          if (typeof section?.getVisible !== 'function' || typeof section?.setVisible !== 'function') {
+            return;
+          }
+
+          const sectionName = getItemName(section);
+          const sectionLabel = sectionName || `Section at tab ${tabIndex} index ${sectionIndex}`;
+
+          if (section.getVisible()) {
+            return;
+          }
+
+          try {
+            if (tab && typeof tab.getVisible === 'function' && typeof tab.setVisible === 'function' && !tab.getVisible()) {
+              tab.setVisible(true);
+              revealedTabs.push(buildTabLocator(tab, tabIndex));
+            }
+
+            section.setVisible(true);
+            revealedSections.push(buildSectionLocator(section, tabIndex, sectionIndex));
+            changedFieldNames.add(sectionLabel);
+          } catch (error) {
+            errors.push(`Failed to reveal section ${sectionLabel}: ${error?.message || String(error)}`);
+            return;
+          }
+
+          if (sectionName) {
+            try {
+              markSectionContainer(sectionName);
+            } catch (error) {
+              errors.push(`Revealed section ${sectionLabel}, but failed to outline its container: ${error?.message || String(error)}`);
+            }
+          }
+        });
+      });
+
+      const persistedState = {
+        enabled: revealedSections.length > 0,
+        revealedSections: dedupeLocators(revealedSections, (locator) => `${locator.tabIndex}::${locator.sectionIndex}::${locator.name || ''}`),
+        revealedTabs: dedupeLocators(revealedTabs, (locator) => `${locator.index}::${locator.name || ''}`)
+      };
+
+      if (persistedState.enabled) {
+        window[sectionStateKey] = persistedState;
+      } else {
+        delete window[sectionStateKey];
+      }
+
+      return {
+        hasXrm: true,
+        hiddenSectionsVisible: persistedState.enabled,
+        changedFieldNames: Array.from(changedFieldNames),
+        errors
+      };
+    }
+
+    (existingState.revealedSections || []).forEach((locator) => {
+      const section = findSectionByLocator(tabs, locator);
+      if (!section || typeof section.getVisible !== 'function' || typeof section.setVisible !== 'function') {
+        return;
+      }
+
+      const sectionName = getItemName(section);
+      const sectionLabel = sectionName || locator.name || `Section ${locator.sectionIndex}`;
+
+      if (sectionName) {
+        try {
+          unmarkSectionContainer(sectionName);
+        } catch (error) {
+          errors.push(`Failed to remove the section outline for ${sectionLabel}: ${error?.message || String(error)}`);
+        }
+      }
+
+      try {
+        if (section.getVisible()) {
+          section.setVisible(false);
+          changedFieldNames.add(sectionLabel);
+        }
+      } catch (error) {
+        errors.push(`Failed to restore visibility for section ${sectionLabel}: ${error?.message || String(error)}`);
+      }
+    });
+
+    (existingState.revealedTabs || []).forEach((locator) => {
+      const tab = findTabByLocator(tabs, locator);
+      if (!tab || typeof tab.getVisible !== 'function' || typeof tab.setVisible !== 'function') {
+        return;
+      }
+
+      try {
+        if (tab.getVisible()) {
+          tab.setVisible(false);
+        }
+      } catch (error) {
+        const tabLabel = locator.name || `Tab ${locator.index}`;
+        errors.push(`Failed to restore hidden tab ${tabLabel}: ${error?.message || String(error)}`);
+      }
+    });
+
+    clearAllMarkers();
+    delete window[sectionStateKey];
+
+    return {
+      hasXrm: true,
+      hiddenSectionsVisible: false,
+      changedFieldNames: Array.from(changedFieldNames),
+      errors
+    };
+  } catch (error) {
+    return {
+      hasXrm: false,
+      hiddenSectionsVisible: false,
+      changedFieldNames: [],
+      errors: ['Failed to toggle hidden sections: ' + (error?.message || String(error))]
+    };
+  }
+}
+
 function toggleFieldsOnForm(shouldEnable) {
   try {
     const fieldStateKey = '__powerPilotFieldUnlockState__';
@@ -3578,6 +4039,7 @@ function getCurrentEntityDetails() {
       fieldsUnlocked: !!window.__powerPilotFieldUnlockState__?.enabled,
       hiddenFieldsVisible: !!window.__powerPilotHiddenFieldState__?.enabled,
       mandatoryFieldsDisabled: !!window.__powerPilotRequiredFieldState__?.enabled,
+      hiddenSectionsVisible: !!window.__powerPilotHiddenSectionState__?.enabled,
       errors: []
     };
   } catch (error) {
@@ -3589,6 +4051,7 @@ function getCurrentEntityDetails() {
       fieldsUnlocked: false,
       hiddenFieldsVisible: false,
       mandatoryFieldsDisabled: false,
+      hiddenSectionsVisible: false,
       errors: ['Failed to detect entity: ' + (error?.message || String(error))]
     };
   }
