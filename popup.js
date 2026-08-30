@@ -15,6 +15,7 @@ const makeRequiredOptionalButton = document.getElementById('makeRequiredOptional
 const toggleSchemaNamesButton = document.getElementById('toggleSchemaNamesButton');
 const searchInput = document.getElementById('searchInput');
 const closeButton = document.getElementById('closeButton');
+const githubFeedbackButton = document.getElementById('githubFeedbackButton');
 
 const state = {
   rawResponse: null,
@@ -65,6 +66,17 @@ entitySelect.addEventListener('change', (event) => {
   render();
 });
 closeButton.addEventListener('click', closePopupWithReset);
+if (githubFeedbackButton) {
+  githubFeedbackButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    const feedbackUrl = 'https://github.com/sathishkannan-git/POWER_PILOT/issues/new/choose';
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: feedbackUrl });
+    } else {
+      window.open(feedbackUrl, '_blank', 'noopener,noreferrer');
+    }
+  });
+}
 
 
 updateSchemaNamesButton();

@@ -701,28 +701,9 @@
       }
 
       @media (max-width: 390px) {
-        html {
-          width: 100%;
-          min-width: 0;
-          max-width: none;
-        }
-
-        body {
-          width: 100%;
-          min-height: 0;
-          padding: 8px;
-          min-width: 0;
-          max-width: none;
-        }
-
         .panel {
-          border-radius: 14px;
-          padding: 12px;
-        }
-
-        .action-grid-2col, .action-grid-1col,
-        .search-row {
-          grid-template-columns: 1fr;
+          border-radius: 16px;
+          padding: 14px;
         }
 
         .table-header {
@@ -732,6 +713,58 @@
         .results {
           max-height: min(58vh, 420px);
         }
+      }
+
+      .footer {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid #dce8ff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .github-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 32px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #ffffff 0%, #f0f5ff 100%);
+        border: 1px solid #c5d8f6;
+        color: #202a5c;
+        font-size: 11.5px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 6px rgba(32, 42, 92, 0.05);
+        font-family: inherit;
+      }
+
+      .github-btn:hover {
+        background: linear-gradient(135deg, #ffffff 0%, #e3edff 100%);
+        border-color: #92b6f3;
+        color: #17345e;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(32, 42, 92, 0.12);
+      }
+
+      .github-btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 3px rgba(32, 42, 92, 0.1);
+      }
+
+      .github-btn svg {
+        flex-shrink: 0;
+        transition: transform 0.2s ease;
+      }
+
+      .github-btn:hover svg {
+        transform: scale(1.1);
       }
     </style>
   </head>
@@ -823,6 +856,22 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           COPY ALL
         </button>
+      </div>
+
+      <div class="footer">
+        <a
+          id="githubFeedbackButton"
+          class="github-btn"
+          href="https://github.com/sathishkannan-git/POWER_PILOT/issues/new/choose"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Submit Feedback or Issues on GitHub"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span>Submit Feedback / Issues</span>
+        </a>
       </div>
     </div>
     <script src="popup.js"></script>

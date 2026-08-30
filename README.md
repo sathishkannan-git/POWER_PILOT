@@ -16,6 +16,11 @@ A browser extension scaffold for Chrome and Edge that helps inspect Dynamics 365
 5. Press `ENABLE FIELDS` to unlock disabled fields on the active form.
 6. Press `DISABLE MANDATORY FIELDS` to convert Business Required fields to Optional.
 7. Press `SHOW SCHEMA NAMES` to toggle field schema names on the active form.
+8. Click `Submit Feedback / Issues` at the bottom of the popup to report bugs or submit feature requests on GitHub.
+
+## Feedback & Issues
+Found a bug or have a suggestion? Submit an issue directly on GitHub:
+[New Issue / Feedback](https://github.com/sathishkannan-git/POWER_PILOT/issues/new/choose)
 
 ## Supported pages
 - `*.dynamics.com`
