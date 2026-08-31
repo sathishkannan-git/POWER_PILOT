@@ -13,6 +13,7 @@ const enableLockedFieldsButton = document.getElementById('enableLockedFieldsButt
 const toggleHiddenFieldsButton = document.getElementById('toggleHiddenFieldsButton');
 const makeRequiredOptionalButton = document.getElementById('makeRequiredOptionalButton');
 const toggleSchemaNamesButton = document.getElementById('toggleSchemaNamesButton');
+const exportAllFieldsButton = document.getElementById('exportAllFieldsButton');
 const searchInput = document.getElementById('searchInput');
 const closeButton = document.getElementById('closeButton');
 
@@ -55,6 +56,7 @@ enableLockedFieldsButton.addEventListener('click', toggleEnableFieldsOnPage);
 toggleHiddenFieldsButton.addEventListener('click', toggleHiddenFieldsOnPage);
 makeRequiredOptionalButton.addEventListener('click', toggleMandatoryFieldsOnPage);
 toggleSchemaNamesButton.addEventListener('click', toggleSchemaNamesOnPage);
+exportAllFieldsButton.addEventListener('click', exportAllFieldsToExcel);
 resultsElement.addEventListener('click', handleResultsClick);
 searchInput.addEventListener('input', (event) => {
   state.searchText = String(event.target.value || '').trim().toLowerCase();
@@ -228,6 +230,107 @@ async function loadOptionSetValues() {
   }
 }
 
+async function exportAllFieldsToExcel() {
+  setStatus('Collecting all entity fields...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: collectAllFieldMetadata
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    if (responses.length === 0) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics form page.');
+    }
+
+    const merged = mergeFieldMetadataResponses(responses);
+    renderErrors(merged.errors || []);
+
+    if (!merged.hasXrm) {
+      setStatus('Xrm is not available. Open a Dynamics 365 record form and try again.');
+      return;
+    }
+
+    if (!merged.entityName || merged.fields.length === 0) {
+      setStatus('No fields could be found for this entity.');
+      return;
+    }
+
+    downloadFieldsAsExcel(merged.entityName, merged.fields);
+    setStatus(`Exported ${merged.fields.length} field(s) for ${merged.entityName}.`);
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderErrors([message]);
+    setStatus('Unable to export fields: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+function downloadFieldsAsExcel(entityName, fields) {
+  const rows = fields.map((field) => ({
+    'Display Name': field.displayName || '',
+    'Schema Name': field.schemaName || '',
+    'Data Type': field.dataType || ''
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Fields');
+
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const filename = `${entityName}_Fields_${timestamp}.xlsx`;
+
+  XLSX.writeFile(workbook, filename);
+}
+
+function mergeFieldMetadataResponses(responses) {
+  const mergedMap = new Map();
+  const errors = [];
+  let hasXrm = false;
+  let entityName = '';
+
+  responses.forEach((response) => {
+    hasXrm = hasXrm || !!response.hasXrm;
+    if (response.entityName) {
+      entityName = response.entityName;
+    }
+
+    if (Array.isArray(response.errors)) {
+      errors.push(...response.errors);
+    }
+
+    (response.fields || []).forEach((field) => {
+      if (!field || !field.schemaName) {
+        return;
+      }
+
+      const key = String(field.schemaName).toLowerCase();
+      if (!mergedMap.has(key)) {
+        mergedMap.set(key, field);
+      }
+    });
+  });
+
+  return {
+    entityName,
+    hasXrm,
+    fields: Array.from(mergedMap.values()),
+    errors: dedupeStrings(errors)
+  };
+}
+
 function setActionButtonsDisabled(isDisabled) {
   refreshButton.disabled = isDisabled;
   pluginExplorerButton.disabled = isDisabled;
@@ -235,6 +338,7 @@ function setActionButtonsDisabled(isDisabled) {
   toggleHiddenFieldsButton.disabled = isDisabled;
   makeRequiredOptionalButton.disabled = isDisabled;
   toggleSchemaNamesButton.disabled = isDisabled;
+  exportAllFieldsButton.disabled = isDisabled;
   toggleOobPluginsButton.disabled = isDisabled || state.currentView !== 'plugins';
   copyAllButton.disabled = isDisabled || !canUseCopyAll();
 }
@@ -3590,6 +3694,161 @@ function getCurrentEntityDetails() {
       hiddenFieldsVisible: false,
       mandatoryFieldsDisabled: false,
       errors: ['Failed to detect entity: ' + (error?.message || String(error))]
+    };
+  }
+}
+
+// Exports all attributes defined on the entity (via the Web API EntityDefinitions
+// endpoint), not just the fields present on the current form.
+async function collectAllFieldMetadata() {
+  try {
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {
+          // Ignore cross-origin exceptions
+        }
+      }
+      return null;
+    }
+
+    function getLocalizedLabel(labelNode) {
+      if (!labelNode) {
+        return '';
+      }
+
+      if (labelNode.UserLocalizedLabel && labelNode.UserLocalizedLabel.Label) {
+        return labelNode.UserLocalizedLabel.Label;
+      }
+
+      const localizedLabels = labelNode.LocalizedLabels;
+      if (Array.isArray(localizedLabels) && localizedLabels.length > 0) {
+        return localizedLabels[0] && localizedLabels[0].Label ? localizedLabels[0].Label : '';
+      }
+
+      return '';
+    }
+
+    function getApiVersionCandidates(xrmRoot) {
+      const candidates = [];
+      const globalContext = xrmRoot && xrmRoot.Utility && typeof xrmRoot.Utility.getGlobalContext === 'function'
+        ? xrmRoot.Utility.getGlobalContext()
+        : null;
+      const rawVersion = globalContext && typeof globalContext.getVersion === 'function'
+        ? globalContext.getVersion()
+        : null;
+      const normalizedVersion = rawVersion
+        ? `v${String(rawVersion).split('.').slice(0, 2).join('.')}`
+        : null;
+
+      if (normalizedVersion) {
+        candidates.push(normalizedVersion);
+      }
+
+      ['v9.2', 'v9.1', 'v9.0', 'v8.2', 'v8.1'].forEach((version) => {
+        if (!candidates.includes(version)) {
+          candidates.push(version);
+        }
+      });
+
+      return candidates;
+    }
+
+    async function fetchAllAttributes(clientUrl, entityName, xrmRoot) {
+      const apiVersions = getApiVersionCandidates(xrmRoot);
+      let lastErrorMessage = null;
+
+      for (const apiVersion of apiVersions) {
+        try {
+          const url = `${clientUrl}/api/data/${apiVersion}/EntityDefinitions(LogicalName='${entityName}')/Attributes?$select=LogicalName,SchemaName,DisplayName,AttributeType`;
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              'OData-MaxVersion': '4.0',
+              'OData-Version': '4.0'
+            },
+            credentials: 'include'
+          });
+
+          if (!response.ok) {
+            const responseText = await response.text().catch(() => '');
+            throw new Error(responseText || `${response.status} ${response.statusText}`);
+          }
+
+          const payload = await response.json();
+          return payload.value || [];
+        } catch (error) {
+          lastErrorMessage = error?.message || String(error);
+        }
+      }
+
+      throw new Error(lastErrorMessage || 'No supported Dataverse Web API version was available');
+    }
+
+    const xrm = getXrmRoot();
+    const formContext = xrm && xrm.Page && xrm.Page.data ? xrm.Page.data.entity : null;
+
+    let entityName = '';
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      entityName =
+        urlParams.get('etn') ||
+        urlParams.get('entityname') ||
+        urlParams.get('entity') ||
+        (formContext && typeof formContext.getEntityName === 'function' ? formContext.getEntityName() : '') ||
+        '';
+    } catch (_error) {
+      entityName = formContext && typeof formContext.getEntityName === 'function'
+        ? formContext.getEntityName()
+        : '';
+    }
+
+    if (!xrm || !entityName) {
+      return {
+        entityName,
+        hasXrm: !!xrm,
+        fields: [],
+        errors: []
+      };
+    }
+
+    if (!xrm.Utility || typeof xrm.Utility.getGlobalContext !== 'function') {
+      return {
+        entityName,
+        hasXrm: true,
+        fields: [],
+        errors: ['Unable to reach the Dataverse Web API from this page.']
+      };
+    }
+
+    const clientUrl = xrm.Utility.getGlobalContext().getClientUrl();
+    const attributes = await fetchAllAttributes(clientUrl, entityName, xrm);
+
+    const fields = attributes
+      .filter((attribute) => attribute && attribute.LogicalName)
+      .map((attribute) => ({
+        displayName: getLocalizedLabel(attribute.DisplayName) || attribute.LogicalName,
+        schemaName: attribute.SchemaName || attribute.LogicalName,
+        dataType: attribute.AttributeType || ''
+      }));
+
+    return {
+      entityName,
+      hasXrm: true,
+      fields,
+      errors: fields.length === 0 ? ['No fields found for this entity.'] : []
+    };
+  } catch (error) {
+    return {
+      entityName: '',
+      hasXrm: false,
+      fields: [],
+      errors: ['Failed to collect field metadata: ' + (error?.message || String(error))]
     };
   }
 }
