@@ -17,11 +17,16 @@ const exportAllFieldsButton = document.getElementById('exportAllFieldsButton');
 const searchInput = document.getElementById('searchInput');
 const closeButton = document.getElementById('closeButton');
 const githubFeedbackButton = document.getElementById('githubFeedbackButton');
+const entityTypeCodeValue = document.getElementById('entityTypeCodeValue');
+const recordGuidValue = document.getElementById('recordGuidValue');
+const cloneRecordButton = document.getElementById('cloneRecordButton');
 
 const state = {
   rawResponse: null,
   fields: [],
   selectedEntity: '',
+  entityTypeCode: '',
+  recordGuid: '',
   searchText: '',
   schemaNamesVisible: false,
   fieldsUnlocked: false,
@@ -33,7 +38,8 @@ const state = {
   pluginDetailsById: {},
   pluginCatalogLoaded: false,
   loadingPluginId: '',
-  showOobPlugins: false
+  showOobPlugins: false,
+  cloningRecord: false
 };
 
 function applyPopupFrameSizing() {
@@ -58,6 +64,9 @@ toggleHiddenFieldsButton.addEventListener('click', toggleHiddenFieldsOnPage);
 makeRequiredOptionalButton.addEventListener('click', toggleMandatoryFieldsOnPage);
 toggleSchemaNamesButton.addEventListener('click', toggleSchemaNamesOnPage);
 exportAllFieldsButton.addEventListener('click', exportAllFieldsToExcel);
+cloneRecordButton.addEventListener('click', cloneCurrentRecord);
+entityTypeCodeValue.addEventListener('click', () => copyEntityInfoValue(entityTypeCodeValue, state.entityTypeCode));
+recordGuidValue.addEventListener('click', () => copyEntityInfoValue(recordGuidValue, state.recordGuid));
 resultsElement.addEventListener('click', handleResultsClick);
 searchInput.addEventListener('input', (event) => {
   state.searchText = String(event.target.value || '').trim().toLowerCase();
@@ -89,6 +98,7 @@ updateModeButtons();
 updateShowOobPluginsButton();
 updateSearchPlaceholder();
 updateCopyAllButtonState();
+updateEntityInfoBox();
 loadEntityOnLaunch();
 
 async function loadEntityOnLaunch() {
@@ -116,6 +126,8 @@ async function loadEntityOnLaunch() {
 
     const entityDetails = mergeEntityResponses(responses, tab.url || '');
     state.selectedEntity = entityDetails.entityName || 'Unknown Entity';
+    state.entityTypeCode = entityDetails.entityName || '';
+    state.recordGuid = entityDetails.recordId || '';
     state.schemaNamesVisible = !!entityDetails.schemaNamesVisible;
     state.fieldsUnlocked = !!entityDetails.fieldsUnlocked;
     state.hiddenFieldsVisible = !!entityDetails.hiddenFieldsVisible;
@@ -126,6 +138,7 @@ async function loadEntityOnLaunch() {
     updateHiddenFieldsButton();
     updateMandatoryFieldsButton();
     updateCopyAllButtonState();
+    updateEntityInfoBox();
 
     if (entityDetails.errors.length > 0) {
       renderErrors(entityDetails.errors);
@@ -144,12 +157,15 @@ async function loadEntityOnLaunch() {
     state.fieldsUnlocked = false;
     state.hiddenFieldsVisible = false;
     state.mandatoryFieldsDisabled = false;
+    state.entityTypeCode = '';
+    state.recordGuid = '';
     hydrateEntitySelect('Unknown Entity');
     updateSchemaNamesButton();
     updateEnableFieldsButton();
     updateHiddenFieldsButton();
     updateMandatoryFieldsButton();
     updateCopyAllButtonState();
+    updateEntityInfoBox();
     renderErrors([]);
     setStatus('Unable to load entity: ' + message);
   } finally {
@@ -159,6 +175,7 @@ async function loadEntityOnLaunch() {
 
 function mergeEntityResponses(responses, fallbackUrl) {
   let entityName = '';
+  let recordId = '';
   const errors = [];
   let schemaNamesVisible = false;
   let fieldsUnlocked = false;
@@ -168,6 +185,10 @@ function mergeEntityResponses(responses, fallbackUrl) {
   responses.forEach((response) => {
     if (!entityName && response?.entityName) {
       entityName = String(response.entityName);
+    }
+
+    if (!recordId && response?.recordId) {
+      recordId = String(response.recordId);
     }
 
     schemaNamesVisible = schemaNamesVisible || !!response?.schemaNamesVisible;
@@ -183,6 +204,7 @@ function mergeEntityResponses(responses, fallbackUrl) {
   return {
     url: responses[0]?.url || fallbackUrl,
     entityName,
+    recordId,
     schemaNamesVisible,
     fieldsUnlocked,
     hiddenFieldsVisible,
@@ -351,8 +373,197 @@ function setActionButtonsDisabled(isDisabled) {
   makeRequiredOptionalButton.disabled = isDisabled;
   toggleSchemaNamesButton.disabled = isDisabled;
   exportAllFieldsButton.disabled = isDisabled;
+  cloneRecordButton.disabled = isDisabled || state.cloningRecord;
   toggleOobPluginsButton.disabled = isDisabled || state.currentView !== 'plugins';
   copyAllButton.disabled = isDisabled || !canUseCopyAll();
+}
+
+function updateEntityInfoBox() {
+  setEntityInfoValue(entityTypeCodeValue, state.entityTypeCode, 'No entity loaded');
+  setEntityInfoValue(recordGuidValue, state.recordGuid, 'No record loaded');
+}
+
+function setEntityInfoValue(element, value, placeholder) {
+  const hasValue = typeof value === 'string' && value.trim().length > 0;
+  element.textContent = hasValue ? value : placeholder;
+  element.classList.toggle('is-placeholder', !hasValue);
+  element.classList.toggle('is-copyable', hasValue);
+}
+
+async function copyEntityInfoValue(element, value) {
+  if (!value) {
+    return;
+  }
+
+  const successMessage = element.getAttribute('data-copy-message') || `Copied ${value}.`;
+  await writeClipboard(value, successMessage);
+}
+
+async function cloneCurrentRecord() {
+  if (state.cloningRecord) {
+    return;
+  }
+
+  state.cloningRecord = true;
+  setStatus('Cloning record...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: cloneCurrentRecordInPage
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    const successResponse = responses.find((response) => response.success);
+
+    if (successResponse) {
+      setStatus(`Record cloned. New ${successResponse.entityName} record created (${successResponse.newId}).`);
+      const clientUrl = successResponse.clientUrl || String(tab.url || '').split('/main.aspx')[0];
+      if (clientUrl) {
+        const newRecordUrl = `${clientUrl}/main.aspx?pagetype=entityrecord&etn=${encodeURIComponent(successResponse.entityName)}&id=${encodeURIComponent(successResponse.newId)}`;
+        chrome.tabs.create({ url: newRecordUrl });
+      }
+      return;
+    }
+
+    const failureMessage = responses.find((response) => response.error)?.error
+      || 'Unable to clone the current record. Make sure a saved record is open.';
+    throw new Error(failureMessage);
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderErrors([message]);
+    setStatus('Unable to clone record: ' + message);
+  } finally {
+    state.cloningRecord = false;
+    setActionButtonsDisabled(false);
+  }
+}
+
+// Runs in the page's MAIN world. Creates a new record of the same entity type
+// as the currently open form, copying over its non-system field values.
+async function cloneCurrentRecordInPage() {
+  const EXCLUDED_ATTRIBUTES = new Set([
+    'createdon', 'modifiedon', 'createdby', 'modifiedby', 'createdonbehalfby', 'modifiedonbehalfby',
+    'owninguser', 'owningteam', 'owningbusinessunit', 'ownerid',
+    'statecode', 'statuscode', 'versionnumber', 'timezoneruleversionnumber',
+    'utcconversiontimezonecode', 'importsequencenumber', 'overriddencreatedon'
+  ]);
+
+  function getXrmRoot() {
+    const candidates = [window, window.top, window.parent].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        if (candidate && candidate.Xrm) {
+          return candidate.Xrm;
+        }
+      } catch (e) {
+        // Ignore cross-origin exceptions
+      }
+    }
+    return null;
+  }
+
+  try {
+    const xrm = getXrmRoot();
+    const formContext = xrm && xrm.Page && xrm.Page.data ? xrm.Page.data.entity : null;
+
+    if (!xrm || !formContext || typeof formContext.getId !== 'function') {
+      return { success: false, error: 'No record loaded to clone.' };
+    }
+
+    const recordId = String(formContext.getId() || '').replace(/[{}]/g, '');
+    const entityName = typeof formContext.getEntityName === 'function' ? formContext.getEntityName() : '';
+
+    if (!recordId || !entityName) {
+      return { success: false, error: 'No record loaded to clone.' };
+    }
+
+    const clientUrl = xrm.Utility.getGlobalContext().getClientUrl();
+    const entitySetNameCache = {};
+
+    async function getEntitySetName(logicalName) {
+      if (entitySetNameCache[logicalName]) {
+        return entitySetNameCache[logicalName];
+      }
+
+      const response = await fetch(
+        `${clientUrl}/api/data/v9.2/EntityDefinitions(LogicalName='${logicalName}')?$select=EntitySetName`,
+        {
+          method: 'GET',
+          headers: { Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0' },
+          credentials: 'include'
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Could not resolve entity set name for ${logicalName}.`);
+      }
+
+      const payload = await response.json();
+      entitySetNameCache[logicalName] = payload.EntitySetName;
+      return payload.EntitySetName;
+    }
+
+    const excludedNames = new Set(EXCLUDED_ATTRIBUTES);
+    excludedNames.add(`${entityName}id`);
+
+    const attributes = typeof formContext.attributes?.get === 'function' ? formContext.attributes.get() : [];
+    const data = {};
+
+    for (const attribute of attributes) {
+      const name = typeof attribute.getName === 'function' ? attribute.getName() : '';
+      if (!name || excludedNames.has(name.toLowerCase())) {
+        continue;
+      }
+
+      const value = typeof attribute.getValue === 'function' ? attribute.getValue() : null;
+      if (value === null || value === undefined || value === '') {
+        continue;
+      }
+
+      const attributeType = typeof attribute.getAttributeType === 'function' ? attribute.getAttributeType() : '';
+
+      if (attributeType === 'lookup' || attributeType === 'customer' || attributeType === 'owner') {
+        if (!Array.isArray(value) || value.length === 0) {
+          continue;
+        }
+        const lookupValue = value[0];
+        try {
+          const entitySetName = await getEntitySetName(lookupValue.entityType);
+          const lookupId = String(lookupValue.id).replace(/[{}]/g, '');
+          data[`${name}@odata.bind`] = `/${entitySetName}(${lookupId})`;
+        } catch (_lookupError) {
+          // Skip lookups whose entity set name could not be resolved.
+        }
+        continue;
+      }
+
+      if (value instanceof Date) {
+        data[name] = value.toISOString();
+        continue;
+      }
+
+      data[name] = value;
+    }
+
+    const createResult = await xrm.WebApi.createRecord(entityName, data);
+    return {
+      success: true,
+      entityName,
+      newId: String(createResult.id).replace(/[{}]/g, ''),
+      clientUrl
+    };
+  } catch (error) {
+    return { success: false, error: error?.message || String(error) };
+  }
 }
 
 function updateSchemaNamesButton() {
@@ -3686,9 +3897,18 @@ function getCurrentEntityDetails() {
         : '';
     }
 
+    let recordId = '';
+    try {
+      const rawId = formContext && typeof formContext.getId === 'function' ? formContext.getId() : '';
+      recordId = rawId ? String(rawId).replace(/[{}]/g, '') : '';
+    } catch (_idError) {
+      recordId = '';
+    }
+
     return {
       url: location.href,
       entityName,
+      recordId,
       hasXrm: !!xrm,
       schemaNamesVisible: !!window[schemaStateKey]?.enabled,
       fieldsUnlocked: !!window.__powerPilotFieldUnlockState__?.enabled,
@@ -3700,6 +3920,7 @@ function getCurrentEntityDetails() {
     return {
       url: location.href,
       entityName: '',
+      recordId: '',
       hasXrm: false,
       schemaNamesVisible: false,
       fieldsUnlocked: false,
