@@ -14,9 +14,22 @@ const toggleHiddenFieldsButton = document.getElementById('toggleHiddenFieldsButt
 const makeRequiredOptionalButton = document.getElementById('makeRequiredOptionalButton');
 const toggleSchemaNamesButton = document.getElementById('toggleSchemaNamesButton');
 const exportAllFieldsButton = document.getElementById('exportAllFieldsButton');
+const fieldsExportButton = document.getElementById('fieldsExportButton') || exportAllFieldsButton;
+const entityExportButton = document.getElementById('entityExportButton');
 const searchInput = document.getElementById('searchInput');
 const closeButton = document.getElementById('closeButton');
 const githubFeedbackButton = document.getElementById('githubFeedbackButton');
+const entityInfoButton = document.getElementById('entityInfoButton');
+const recordIdButton = document.getElementById('recordIdButton');
+const userSecurityRolesButton = document.getElementById('userSecurityRolesButton');
+const rolesModal = document.getElementById('rolesModal');
+const closeRolesModalButton = document.getElementById('closeRolesModalButton');
+const rolesSearchInput = document.getElementById('rolesSearchInput');
+const rolesList = document.getElementById('rolesList');
+const rolesModalUserSubtitle = document.getElementById('rolesModalUserSubtitle');
+const rolesModalCountBadge = document.getElementById('rolesModalCountBadge');
+const copyAllRolesButton = document.getElementById('copyAllRolesButton');
+const exportRolesButton = document.getElementById('exportRolesButton');
 
 const state = {
   rawResponse: null,
@@ -33,7 +46,12 @@ const state = {
   pluginDetailsById: {},
   pluginCatalogLoaded: false,
   loadingPluginId: '',
-  showOobPlugins: false
+  showOobPlugins: false,
+  entityInfo: null,
+  recordDetails: null,
+  userRoles: [],
+  rolesUserInfo: { userName: '', userId: '' },
+  rolesSearchText: ''
 };
 
 function applyPopupFrameSizing() {
@@ -51,13 +69,39 @@ function applyPopupFrameSizing() {
 
 refreshButton.addEventListener('click', loadOptionSetValues);
 pluginExplorerButton.addEventListener('click', () => loadPluginExplorer());
-copyAllButton.addEventListener('click', () => copyAllTables());
+copyAllButton.addEventListener('click', () => {
+  if (state.currentView === 'securityRoles') {
+    copyAllRolesToClipboard();
+  } else {
+    copyAllTables();
+  }
+});
 toggleOobPluginsButton.addEventListener('click', toggleShowOobPlugins);
 enableLockedFieldsButton.addEventListener('click', toggleEnableFieldsOnPage);
 toggleHiddenFieldsButton.addEventListener('click', toggleHiddenFieldsOnPage);
 makeRequiredOptionalButton.addEventListener('click', toggleMandatoryFieldsOnPage);
 toggleSchemaNamesButton.addEventListener('click', toggleSchemaNamesOnPage);
-exportAllFieldsButton.addEventListener('click', exportAllFieldsToExcel);
+if (entityInfoButton) entityInfoButton.addEventListener('click', showEntityInfo);
+if (recordIdButton) recordIdButton.addEventListener('click', showRecordId);
+if (fieldsExportButton) fieldsExportButton.addEventListener('click', exportFieldsToExcel);
+if (entityExportButton) entityExportButton.addEventListener('click', exportEntityMetadataToExcel);
+if (userSecurityRolesButton) userSecurityRolesButton.addEventListener('click', showUserSecurityRoles);
+if (closeRolesModalButton) closeRolesModalButton.addEventListener('click', closeRolesModal);
+if (rolesSearchInput) {
+  rolesSearchInput.addEventListener('input', (event) => {
+    state.rolesSearchText = String(event.target.value || '').trim().toLowerCase();
+    renderRolesList();
+  });
+}
+if (copyAllRolesButton) copyAllRolesButton.addEventListener('click', copyAllRolesToClipboard);
+if (exportRolesButton) exportRolesButton.addEventListener('click', exportRolesToExcel);
+if (rolesModal) {
+  rolesModal.addEventListener('click', (event) => {
+    if (event.target === rolesModal) {
+      closeRolesModal();
+    }
+  });
+}
 resultsElement.addEventListener('click', handleResultsClick);
 searchInput.addEventListener('input', (event) => {
   state.searchText = String(event.target.value || '').trim().toLowerCase();
@@ -68,6 +112,15 @@ entitySelect.addEventListener('change', (event) => {
   render();
 });
 closeButton.addEventListener('click', closePopupWithReset);
+if (statusElement) {
+  statusElement.addEventListener('click', handleStatusClick);
+  statusElement.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleStatusClick();
+    }
+  });
+}
 if (githubFeedbackButton) {
   githubFeedbackButton.addEventListener('click', (event) => {
     event.preventDefault();
@@ -242,8 +295,8 @@ async function loadOptionSetValues() {
   }
 }
 
-async function exportAllFieldsToExcel() {
-  setStatus('Collecting all entity fields...');
+async function exportFieldsToExcel() {
+  setStatus('Collecting entity fields for export...');
   errorsElement.innerHTML = '';
   setActionButtonsDisabled(true);
 
@@ -272,17 +325,76 @@ async function exportAllFieldsToExcel() {
       return;
     }
 
-    if (!merged.entityName || merged.fields.length === 0) {
+    const entityName = merged.entityName || state.selectedEntity || 'Entity';
+    if (merged.fields.length === 0) {
       setStatus('No fields could be found for this entity.');
       return;
     }
 
-    downloadFieldsAsExcel(merged.entityName, merged.fields);
-    setStatus(`Exported ${merged.fields.length} field(s) for ${merged.entityName}.`);
+    downloadFieldsAsExcel(entityName, merged.fields);
+    setStatus(`Exported ${merged.fields.length} field(s) for ${entityName} to Excel.`);
+    setTimeout(() => {
+      window.close();
+    }, 500);
   } catch (error) {
     const message = error?.message || String(error);
     renderErrors([message]);
     setStatus('Unable to export fields: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+const exportAllFieldsToExcel = exportFieldsToExcel;
+
+async function exportEntityMetadataToExcel() {
+  setStatus('Collecting entity metadata for export...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: collectEntityDefinitionMetadata
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    const validResponse = responses.find((res) => res.properties && res.properties.length > 0) || responses.find((res) => res.hasXrm) || responses[0];
+
+    if (!validResponse) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics form page.');
+    }
+
+    renderErrors(validResponse.errors || []);
+
+    if (!validResponse.hasXrm) {
+      setStatus('Xrm is not available. Open a Dynamics 365 record form and try again.');
+      return;
+    }
+
+    const entityName = validResponse.entityName || state.selectedEntity || 'Entity';
+    const properties = validResponse.properties || [];
+
+    if (properties.length === 0) {
+      setStatus('No metadata definition could be found for this entity.');
+      return;
+    }
+
+    downloadEntityAsExcel(entityName, properties);
+    setStatus(`Exported entity metadata definition for ${entityName} to Excel.`);
+    setTimeout(() => {
+      window.close();
+    }, 500);
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderErrors([message]);
+    setStatus('Unable to export entity metadata: ' + message);
   } finally {
     setActionButtonsDisabled(false);
   }
@@ -303,6 +415,19 @@ function downloadFieldsAsExcel(entityName, fields) {
   const pad = (value) => String(value).padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const filename = `${entityName}_Fields_${timestamp}.xlsx`;
+
+  XLSX.writeFile(workbook, filename);
+}
+
+function downloadEntityAsExcel(entityName, properties) {
+  const worksheet = XLSX.utils.json_to_sheet(properties);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Entity Metadata');
+
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const filename = `${entityName}_Entity_Metadata_${timestamp}.xlsx`;
 
   XLSX.writeFile(workbook, filename);
 }
@@ -346,11 +471,15 @@ function mergeFieldMetadataResponses(responses) {
 function setActionButtonsDisabled(isDisabled) {
   refreshButton.disabled = isDisabled;
   pluginExplorerButton.disabled = isDisabled;
+  if (entityInfoButton) entityInfoButton.disabled = isDisabled;
+  if (recordIdButton) recordIdButton.disabled = isDisabled;
   enableLockedFieldsButton.disabled = isDisabled;
   toggleHiddenFieldsButton.disabled = isDisabled;
   makeRequiredOptionalButton.disabled = isDisabled;
   toggleSchemaNamesButton.disabled = isDisabled;
-  exportAllFieldsButton.disabled = isDisabled;
+  if (fieldsExportButton) fieldsExportButton.disabled = isDisabled;
+  if (entityExportButton) entityExportButton.disabled = isDisabled;
+  if (userSecurityRolesButton) userSecurityRolesButton.disabled = isDisabled;
   toggleOobPluginsButton.disabled = isDisabled || state.currentView !== 'plugins';
   copyAllButton.disabled = isDisabled || !canUseCopyAll();
 }
@@ -382,6 +511,9 @@ function updateMandatoryFieldsButton() {
 function updateModeButtons() {
   refreshButton.setAttribute('aria-pressed', state.currentView === 'optionSets' ? 'true' : 'false');
   pluginExplorerButton.setAttribute('aria-pressed', state.currentView === 'plugins' ? 'true' : 'false');
+  if (entityInfoButton) entityInfoButton.setAttribute('aria-pressed', state.currentView === 'entityInfo' ? 'true' : 'false');
+  if (recordIdButton) recordIdButton.setAttribute('aria-pressed', state.currentView === 'recordId' ? 'true' : 'false');
+  if (userSecurityRolesButton) userSecurityRolesButton.setAttribute('aria-pressed', state.currentView === 'securityRoles' ? 'true' : 'false');
 }
 
 function updateShowOobPluginsButton() {
@@ -391,18 +523,25 @@ function updateShowOobPluginsButton() {
 }
 
 function updateSearchPlaceholder() {
-  const placeholder = state.currentView === 'plugins'
-    ? 'Search by plugin, assembly, step, entity, or message'
-    : 'Search by name or columns';
+  let placeholder = 'Search by name or columns';
+  if (state.currentView === 'plugins') {
+    placeholder = 'Search by plugin, assembly, step, entity, or message';
+  } else if (state.currentView === 'entityInfo') {
+    placeholder = 'Search entity details or schema name...';
+  } else if (state.currentView === 'recordId') {
+    placeholder = 'Search record ID or details...';
+  } else if (state.currentView === 'securityRoles') {
+    placeholder = 'Search security roles or GUIDs...';
+  }
   searchInput.placeholder = placeholder;
   searchInput.setAttribute('aria-label', placeholder);
 }
 
 function updateCopyAllButtonState() {
   const canCopyAll = canUseCopyAll();
-  const isOptionSetView = state.currentView === 'optionSets';
-  copyAllButton.hidden = !isOptionSetView || !canCopyAll;
-  copyAllButton.disabled = !isOptionSetView || !canCopyAll;
+  const isCopyableView = state.currentView === 'optionSets' || state.currentView === 'securityRoles';
+  copyAllButton.hidden = !isCopyableView || !canCopyAll;
+  copyAllButton.disabled = !isCopyableView || !canCopyAll;
 
   const isPluginView = state.currentView === 'plugins';
   toggleOobPluginsButton.hidden = !isPluginView;
@@ -410,6 +549,9 @@ function updateCopyAllButtonState() {
 }
 
 function canUseCopyAll() {
+  if (state.currentView === 'securityRoles') {
+    return Array.isArray(state.userRoles) && state.userRoles.length > 0;
+  }
   return state.currentView === 'optionSets' && Array.isArray(state.fields) && state.fields.length > 0;
 }
 
@@ -861,6 +1003,18 @@ function hydrateEntitySelect(entityName) {
 function render() {
   if (state.currentView === 'plugins') {
     renderPluginExplorer();
+    return;
+  }
+  if (state.currentView === 'entityInfo') {
+    renderEntityInfoView();
+    return;
+  }
+  if (state.currentView === 'recordId') {
+    renderRecordIdView();
+    return;
+  }
+  if (state.currentView === 'securityRoles') {
+    renderSecurityRolesView();
     return;
   }
 
@@ -1804,17 +1958,21 @@ function pluginDetailToText(detail) {
   return lines.join('\n');
 }
 
-async function writeClipboard(text, successMessage) {
+async function writeClipboard(text, successMessage = '') {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
     } else {
       fallbackCopy(text);
     }
-    setStatus(successMessage);
+    if (successMessage) {
+      setStatus(successMessage);
+    }
   } catch (error) {
     fallbackCopy(text);
-    setStatus(successMessage);
+    if (successMessage) {
+      setStatus(successMessage);
+    }
   }
 }
 
@@ -1830,8 +1988,52 @@ function fallbackCopy(text) {
   document.body.removeChild(textarea);
 }
 
-function setStatus(message) {
-  statusElement.textContent = message;
+function setStatus(message, copyValue = '') {
+  if (!statusElement) return;
+  const statusText = document.getElementById('statusText');
+
+  if (statusText) {
+    statusText.innerHTML = message;
+  } else {
+    statusElement.innerHTML = message;
+  }
+
+  if (copyValue) {
+    statusElement.dataset.copyValue = copyValue;
+    statusElement.title = `Click to copy: ${copyValue}`;
+  } else {
+    const raw = (statusText ? statusText.textContent : statusElement.textContent || '').trim();
+    statusElement.dataset.copyValue = raw;
+    statusElement.title = 'Click to copy';
+  }
+}
+
+async function handleStatusClick() {
+  if (!statusElement) return;
+  const valueToCopy = (statusElement.dataset.copyValue || (document.getElementById('statusText')?.textContent) || statusElement.textContent || '').trim();
+  if (!valueToCopy) return;
+
+  await writeClipboard(valueToCopy);
+  flashStatusCopied();
+}
+
+function flashStatusCopied() {
+  const copyIcon = document.getElementById('statusCopyIcon');
+  if (!copyIcon) return;
+  const originalHtml = copyIcon.innerHTML;
+  copyIcon.innerHTML = `
+    <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: #16a34a; background: #eafaf1; padding: 2px 6px; border-radius: 6px; border: 1px solid #bbf7d0;">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      Copied!
+    </span>
+  `;
+  statusElement.classList.add('status-copied-flash');
+  setTimeout(() => {
+    try {
+      copyIcon.innerHTML = originalHtml;
+      statusElement.classList.remove('status-copied-flash');
+    } catch (_) {}
+  }, 1800);
 }
 
 function escapeHtml(text) {
@@ -4157,3 +4359,1267 @@ function mergeOptionsInPage(formOptions, metadataOptions) {
 
   return Array.from(optionMap.values()).sort((a, b) => Number(a.value) - Number(b.value));
 }
+
+async function showEntityInfo() {
+  state.currentView = 'entityInfo';
+  updateModeButtons();
+  updateSearchPlaceholder();
+  updateCopyAllButtonState();
+  setStatus('Detecting entity schema name and details...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: getEntityInfoFromForm
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    let validResponse = responses.find((res) => res.found && (res.schemaName || res.logicalName)) ||
+      responses.find((res) => res.schemaName || res.logicalName) ||
+      responses.find((res) => res.hasXrm) ||
+      responses[0];
+
+    if (!validResponse) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics 365 or Power Apps form.');
+    }
+
+    if (!validResponse.schemaName && state.selectedEntity && state.selectedEntity !== 'Unknown Entity') {
+      validResponse.schemaName = state.selectedEntity;
+      validResponse.logicalName = state.selectedEntity.toLowerCase();
+      validResponse.displayName = validResponse.displayName || state.selectedEntity;
+      validResponse.found = true;
+    }
+
+    state.entityInfo = validResponse;
+
+    if (validResponse.schemaName) {
+      state.selectedEntity = validResponse.schemaName;
+      hydrateEntitySelect(validResponse.schemaName);
+      await writeClipboard(validResponse.schemaName);
+      setStatus(`Entity Schema Name: <strong class="status-highlight">${escapeHtml(validResponse.schemaName)}</strong>`, validResponse.schemaName);
+      flashStatusCopied();
+    } else {
+      setStatus('Could not detect entity schema name on this page.');
+    }
+
+    render();
+  } catch (error) {
+    const message = error?.message || String(error);
+    state.entityInfo = { found: false, error: message };
+    render();
+    setStatus('Unable to get entity info: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+async function showRecordId() {
+  state.currentView = 'recordId';
+  updateModeButtons();
+  updateSearchPlaceholder();
+  updateCopyAllButtonState();
+  setStatus('Detecting Record ID...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: getRecordIdFromForm
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    const validResponse = responses.find((res) => res.cleanId) ||
+      responses.find((res) => res.isNewRecord) ||
+      responses.find((res) => res.hasXrm) ||
+      responses[0];
+
+    if (!validResponse) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics 365 form page.');
+    }
+
+    state.recordDetails = validResponse;
+
+    if (validResponse.cleanId) {
+      await writeClipboard(validResponse.cleanId);
+      setStatus(`Record ID: <strong class="status-highlight">${escapeHtml(validResponse.cleanId)}</strong>`, validResponse.cleanId);
+      flashStatusCopied();
+    } else if (validResponse.isNewRecord) {
+      setStatus('New Record: This record has not been saved yet (no Record ID assigned).');
+    } else {
+      setStatus('No active record ID found. Open a Dynamics 365 record form and try again.');
+    }
+
+    render();
+  } catch (error) {
+    const message = error?.message || String(error);
+    state.recordDetails = { found: false, error: message };
+    render();
+    setStatus('Unable to get Record ID: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+function renderEntityInfoView() {
+  const info = state.entityInfo;
+  if (!info) {
+    resultsElement.innerHTML = '<div class="empty-state">No entity info loaded yet. Click ENTITY INFO to inspect.</div>';
+    return;
+  }
+
+  if (!info.found && !info.schemaName && !info.logicalName) {
+    resultsElement.innerHTML = `
+      <div class="empty-state">
+        <p style="margin: 0 0 6px; font-weight: 700; color: #a73737;">Entity Not Detected</p>
+        <span style="font-size: 11px; color: #64779b;">${escapeHtml(info.error || 'Please make sure you are on a Dynamics 365 or Power Apps form or view.')}</span>
+      </div>
+    `;
+    return;
+  }
+
+  const schemaName = info.schemaName || info.logicalName || 'Unknown';
+  const logicalName = info.logicalName || schemaName.toLowerCase();
+  const displayName = info.displayName || schemaName;
+
+  const rows = [
+    { label: 'Schema Name', value: schemaName, copyable: true, primary: true },
+    { label: 'Logical Name', value: logicalName, copyable: true },
+    { label: 'Display Name', value: displayName, copyable: true },
+    { label: 'Object Type Code (ETC)', value: info.objectTypeCode !== null && info.objectTypeCode !== undefined ? String(info.objectTypeCode) : '-', copyable: info.objectTypeCode !== null && info.objectTypeCode !== undefined },
+    { label: 'Primary ID Attribute', value: info.primaryIdAttribute || (logicalName ? `${logicalName}id` : '-'), copyable: !!info.primaryIdAttribute },
+    { label: 'Primary Name Attribute', value: info.primaryNameAttribute || '-', copyable: !!info.primaryNameAttribute },
+    { label: 'Entity Type', value: info.isCustomEntity !== null && info.isCustomEntity !== undefined ? (info.isCustomEntity ? 'Custom Table / Entity' : 'System Table / Entity') : '-' }
+  ];
+
+  const query = state.searchText;
+  const filteredRows = query
+    ? rows.filter(r => r.label.toLowerCase().includes(query) || (r.value && r.value.toLowerCase().includes(query)))
+    : rows;
+
+  const rowsHtml = filteredRows.length > 0
+    ? filteredRows.map(r => renderInfoDetailRow(r)).join('')
+    : '<div class="empty-state" style="padding: 10px;">No matching entity details.</div>';
+
+  resultsElement.innerHTML = `
+    <div class="inspector-layout">
+      <section class="section-card">
+        <div class="section-heading-row">
+          <h2 class="section-title">Entity Information</h2>
+          <span class="section-badge">${escapeHtml(schemaName)}</span>
+        </div>
+        <div class="plugin-detail">
+          <div class="plugin-detail-header">
+            <div class="plugin-detail-heading">
+              <h3 class="plugin-detail-title">${escapeHtml(displayName)}</h3>
+              <p class="plugin-detail-subtitle">Schema: <strong style="color: #1a3b8b;">${escapeHtml(schemaName)}</strong> • Logical: ${escapeHtml(logicalName)}</p>
+            </div>
+            <div class="plugin-detail-actions">
+              <button type="button" class="btn" data-copy-text="${escapeHtml(schemaName)}" data-copy-message="Copied Schema Name ${escapeHtml(schemaName)}!" style="min-height: 28px; padding: 4px 10px; font-size: 11px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copy Schema</span>
+              </button>
+            </div>
+          </div>
+          <div class="detail-grid">${rowsHtml}</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderRecordIdView() {
+  const details = state.recordDetails;
+  if (!details) {
+    resultsElement.innerHTML = '<div class="empty-state">No record details loaded yet. Click RECORD ID to inspect.</div>';
+    return;
+  }
+
+  if (details.isNewRecord) {
+    resultsElement.innerHTML = `
+      <div class="inspector-layout">
+        <section class="section-card">
+          <div class="section-heading-row">
+            <h2 class="section-title">Record Details</h2>
+            <span class="section-badge" style="background: #fef3c7; color: #92400e;">New</span>
+          </div>
+          <div class="plugin-detail">
+            <div class="empty-state" style="border: 1px dashed #fcd34d; background: #fffbeb; padding: 16px 12px;">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin: 0 auto 6px; display: block;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <h4 style="margin: 0 0 4px; font-size: 13.5px; font-weight: 700; color: #92400e;">New Record (Unsaved)</h4>
+              <p style="margin: 0; font-size: 11px; color: #78350f; line-height: 1.45;">This record has not been saved to Dataverse yet, so no Record ID (GUID) has been created. Save the record and click Record Id again.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    `;
+    return;
+  }
+
+  if (!details.cleanId) {
+    resultsElement.innerHTML = `
+      <div class="empty-state">
+        <p style="margin: 0 0 6px; font-weight: 700; color: #a73737;">Record ID Not Found</p>
+        <span style="font-size: 11px; color: #64779b;">${escapeHtml(details.error || 'Could not find an active record ID. Make sure you have opened a record form in Dynamics 365 or Power Apps.')}</span>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = [
+    { label: 'Record ID (Clean GUID)', value: details.cleanId, copyable: true, primary: true },
+    { label: 'Formatted GUID', value: details.formattedId, copyable: true },
+    { label: 'Entity Schema Name', value: details.entityName || '-', copyable: !!details.entityName },
+    { label: 'Record Title', value: details.recordName || '-', copyable: !!details.recordName }
+  ];
+
+  if (details.url) {
+    rows.push({ label: 'Record URL', value: details.url, copyable: true, isUrl: true });
+  }
+
+  const query = state.searchText;
+  const filteredRows = query
+    ? rows.filter(r => r.label.toLowerCase().includes(query) || (r.value && r.value.toLowerCase().includes(query)))
+    : rows;
+
+  const rowsHtml = filteredRows.length > 0
+    ? filteredRows.map(r => renderInfoDetailRow(r)).join('')
+    : '<div class="empty-state" style="padding: 10px;">No matching record details.</div>';
+
+  resultsElement.innerHTML = `
+    <div class="inspector-layout">
+      <section class="section-card">
+        <div class="section-heading-row">
+          <h2 class="section-title">Record Details</h2>
+          <span class="section-badge">ID</span>
+        </div>
+        <div class="plugin-detail">
+          <div class="plugin-detail-header">
+            <div class="plugin-detail-heading">
+              <h3 class="plugin-detail-title" style="font-family: Consolas, monospace; font-size: 12.5px; word-break: break-all; color: #1a3b8b;">${escapeHtml(details.cleanId)}</h3>
+              <p class="plugin-detail-subtitle">${escapeHtml(details.recordName ? `${details.recordName} • ` : '')}${escapeHtml(details.entityName || 'Active Record')}</p>
+            </div>
+            <div class="plugin-detail-actions">
+              <button type="button" class="btn" data-copy-text="${escapeHtml(details.cleanId)}" data-copy-message="Copied Record ID ${escapeHtml(details.cleanId)}!" style="min-height: 28px; padding: 4px 10px; font-size: 11px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copy ID</span>
+              </button>
+            </div>
+          </div>
+          <div class="detail-grid">${rowsHtml}</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderInfoDetailRow(row) {
+  const isPrimary = row.primary;
+  const copyBtn = row.copyable && row.value && row.value !== '-'
+    ? `
+      <button type="button" class="copyable-text" data-copy-text="${escapeHtml(row.value)}" data-copy-message="Copied ${escapeHtml(row.label)}!" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; font-size: 10px; border-radius: 6px; background: #eaf2ff; color: #1d4ed8; cursor: pointer; border: 1px solid #c8dbf4; font-family: inherit; font-weight: 600;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        <span>Copy</span>
+      </button>
+    `
+    : '';
+
+  const valueStyle = isPrimary
+    ? 'font-weight: 700; color: #1a3b8b; font-size: 12.5px; font-family: Consolas, monospace;'
+    : (row.isUrl ? 'font-size: 11px; word-break: break-all; color: #4361ee;' : 'font-size: 12px;');
+
+  return `
+    <div class="detail-row">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+        <span class="detail-label">${escapeHtml(row.label)}</span>
+        ${copyBtn}
+      </div>
+      <div class="detail-value" style="${valueStyle}">${escapeHtml(row.value || '-')}</div>
+    </div>
+  `;
+}
+
+async function getEntityInfoFromForm() {
+  try {
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {
+          // Ignore cross-origin exceptions
+        }
+      }
+      return null;
+    }
+
+    const xrm = getXrmRoot();
+    const formContext = xrm && xrm.Page && xrm.Page.data ? xrm.Page.data.entity : null;
+    let logicalName = '';
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      logicalName =
+        urlParams.get('etn') ||
+        urlParams.get('entityname') ||
+        urlParams.get('entity') ||
+        (formContext && typeof formContext.getEntityName === 'function' ? formContext.getEntityName() : '') ||
+        (xrm?.Utility?.getPageContext?.()?.input?.entityName) ||
+        '';
+    } catch (_error) {
+      logicalName = (formContext && typeof formContext.getEntityName === 'function' ? formContext.getEntityName() : '') ||
+        (xrm?.Utility?.getPageContext?.()?.input?.entityName) ||
+        '';
+    }
+
+    if (!logicalName && !xrm) {
+      return {
+        hasXrm: false,
+        found: false,
+        error: 'Xrm is not available. Please open a Dynamics 365 or Power Apps form.'
+      };
+    }
+
+    let schemaName = logicalName;
+    let displayName = '';
+    let objectTypeCode = null;
+    let primaryIdAttribute = '';
+    let primaryNameAttribute = '';
+    let isCustomEntity = null;
+
+    if (logicalName && xrm?.Utility && typeof xrm.Utility.getEntityMetadata === 'function') {
+      try {
+        const metadata = await xrm.Utility.getEntityMetadata(logicalName);
+        if (metadata) {
+          if (metadata.SchemaName) schemaName = metadata.SchemaName;
+          if (metadata.DisplayName) displayName = metadata.DisplayName;
+          if (metadata.ObjectTypeCode !== undefined) objectTypeCode = metadata.ObjectTypeCode;
+          if (metadata.PrimaryIdAttribute) primaryIdAttribute = metadata.PrimaryIdAttribute;
+          if (metadata.PrimaryNameAttribute) primaryNameAttribute = metadata.PrimaryNameAttribute;
+          if (metadata.IsCustomEntity !== undefined) isCustomEntity = metadata.IsCustomEntity;
+        }
+      } catch (_e) {}
+    }
+
+    if ((!displayName || schemaName === logicalName) && logicalName && xrm?.Utility?.getGlobalContext) {
+      try {
+        const clientUrl = xrm.Utility.getGlobalContext().getClientUrl();
+        const res = await fetch(
+          `${clientUrl}/api/data/v9.2/EntityDefinitions(LogicalName='${logicalName}')?$select=SchemaName,LogicalName,DisplayName,ObjectTypeCode,PrimaryIdAttribute,PrimaryNameAttribute,IsCustomEntity`,
+          {
+            credentials: 'include',
+            headers: { Accept: 'application/json' }
+          }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (json.SchemaName) schemaName = json.SchemaName;
+          if (json.DisplayName?.UserLocalizedLabel?.Label) {
+            displayName = json.DisplayName.UserLocalizedLabel.Label;
+          }
+          if (json.ObjectTypeCode !== undefined) objectTypeCode = json.ObjectTypeCode;
+          if (json.PrimaryIdAttribute) primaryIdAttribute = json.PrimaryIdAttribute;
+          if (json.PrimaryNameAttribute) primaryNameAttribute = json.PrimaryNameAttribute;
+          if (json.IsCustomEntity !== undefined) isCustomEntity = json.IsCustomEntity;
+        }
+      } catch (_e) {}
+    }
+
+    try {
+      if (xrm?.Page?.ui?.setFormNotification) {
+        xrm.Page.ui.setFormNotification(`[Power Pilot] Entity Schema Name: ${schemaName || logicalName}`, 'INFO', 'powerpilot_entity_info');
+        setTimeout(() => {
+          try { xrm.Page.ui.clearFormNotification('powerpilot_entity_info'); } catch (_) {}
+        }, 5000);
+      }
+    } catch (_) {}
+
+    return {
+      hasXrm: !!xrm,
+      found: !!logicalName || !!schemaName,
+      schemaName: schemaName || logicalName,
+      logicalName: logicalName || (schemaName ? schemaName.toLowerCase() : ''),
+      displayName: displayName || schemaName || logicalName,
+      objectTypeCode,
+      primaryIdAttribute: primaryIdAttribute || (logicalName ? `${logicalName}id` : ''),
+      primaryNameAttribute: primaryNameAttribute || '',
+      isCustomEntity
+    };
+  } catch (err) {
+    return {
+      hasXrm: false,
+      found: false,
+      error: err?.message || String(err)
+    };
+  }
+}
+
+function getRecordIdFromForm() {
+  try {
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {
+          // Ignore cross-origin exceptions
+        }
+      }
+      return null;
+    }
+
+    const xrm = getXrmRoot();
+    const formContext = xrm && xrm.Page && xrm.Page.data ? xrm.Page.data.entity : null;
+
+    let rawId = '';
+    try {
+      if (formContext && typeof formContext.getId === 'function') {
+        rawId = formContext.getId();
+      }
+      if (!rawId && xrm?.Utility?.getPageContext?.()?.input?.entityId) {
+        rawId = xrm.Utility.getPageContext().input.entityId;
+      }
+    } catch (_) {}
+
+    let entityName = '';
+    try {
+      if (formContext && typeof formContext.getEntityName === 'function') {
+        entityName = formContext.getEntityName();
+      }
+      if (!entityName && xrm?.Utility?.getPageContext?.()?.input?.entityName) {
+        entityName = xrm.Utility.getPageContext().input.entityName;
+      }
+    } catch (_) {}
+
+    let recordName = '';
+    try {
+      if (formContext && typeof formContext.getPrimaryAttributeValue === 'function') {
+        recordName = formContext.getPrimaryAttributeValue();
+      }
+    } catch (_) {}
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (!rawId) {
+        rawId = urlParams.get('id') || '';
+      }
+      if (!entityName) {
+        entityName = urlParams.get('etn') || urlParams.get('entityname') || urlParams.get('entity') || '';
+      }
+    } catch (_) {}
+
+    const cleanId = rawId ? rawId.replace(/[{}]/g, '').toLowerCase() : '';
+    const formattedId = cleanId ? `{${cleanId.toUpperCase()}}` : '';
+
+    let isNewRecord = false;
+    try {
+      if (xrm?.Page?.ui?.getFormType) {
+        isNewRecord = xrm.Page.ui.getFormType() === 1;
+      }
+    } catch (_) {}
+
+    try {
+      if (xrm?.Page?.ui?.setFormNotification) {
+        const notifText = cleanId
+          ? `[Power Pilot] Record ID: ${cleanId}`
+          : (isNewRecord ? '[Power Pilot] New record - not saved yet (no ID)' : '[Power Pilot] No Record ID found');
+        xrm.Page.ui.setFormNotification(notifText, 'INFO', 'powerpilot_record_id');
+        setTimeout(() => {
+          try { xrm.Page.ui.clearFormNotification('powerpilot_record_id'); } catch (_) {}
+        }, 5000);
+      }
+    } catch (_) {}
+
+    return {
+      hasXrm: !!xrm,
+      found: !!cleanId,
+      rawId,
+      cleanId,
+      formattedId,
+      entityName,
+      recordName,
+      isNewRecord,
+      url: window.location.href
+    };
+  } catch (err) {
+    return {
+      hasXrm: false,
+      found: false,
+      error: err?.message || String(err)
+    };
+  }
+}
+
+async function collectEntityDefinitionMetadata() {
+  try {
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    const xrm = getXrmRoot();
+    const formContext = xrm && xrm.Page && xrm.Page.data ? xrm.Page.data.entity : null;
+
+    let entityName = '';
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      entityName =
+        urlParams.get('etn') ||
+        urlParams.get('entityname') ||
+        urlParams.get('entity') ||
+        (formContext && typeof formContext.getEntityName === 'function' ? formContext.getEntityName() : '') ||
+        '';
+    } catch (_error) {
+      entityName = formContext && typeof formContext.getEntityName === 'function'
+        ? formContext.getEntityName()
+        : '';
+    }
+
+    if (!xrm || !entityName) {
+      return {
+        entityName,
+        hasXrm: !!xrm,
+        properties: [],
+        errors: []
+      };
+    }
+
+    function getApiVersionCandidates(xrmRoot) {
+      const candidates = [];
+      const globalContext = xrmRoot && xrmRoot.Utility && typeof xrmRoot.Utility.getGlobalContext === 'function'
+        ? xrmRoot.Utility.getGlobalContext()
+        : null;
+      const rawVersion = globalContext && typeof globalContext.getVersion === 'function'
+        ? globalContext.getVersion()
+        : null;
+      const normalizedVersion = rawVersion
+        ? `v${String(rawVersion).split('.').slice(0, 2).join('.')}`
+        : null;
+
+      if (normalizedVersion) {
+        candidates.push(normalizedVersion);
+      }
+
+      ['v9.2', 'v9.1', 'v9.0', 'v8.2', 'v8.1'].forEach((version) => {
+        if (!candidates.includes(version)) {
+          candidates.push(version);
+        }
+      });
+
+      return candidates;
+    }
+
+    let entityDef = null;
+    if (xrm.Utility && typeof xrm.Utility.getGlobalContext === 'function') {
+      const clientUrl = xrm.Utility.getGlobalContext().getClientUrl();
+      const apiVersions = getApiVersionCandidates(xrm);
+      for (const apiVersion of apiVersions) {
+        try {
+          const url = `${clientUrl}/api/data/${apiVersion}/EntityDefinitions(LogicalName='${entityName}')?$select=LogicalName,SchemaName,DisplayName,Description,ObjectTypeCode,PrimaryIdAttribute,PrimaryNameAttribute,EntitySetName,OwnershipType,IsCustomEntity,IsActivity,CreatedOn,ModifiedOn`;
+          const res = await fetch(url, {
+            headers: { Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0' },
+            credentials: 'include'
+          });
+          if (res.ok) {
+            entityDef = await res.json();
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!entityDef && xrm.Utility && typeof xrm.Utility.getEntityMetadata === 'function') {
+      try {
+        entityDef = await xrm.Utility.getEntityMetadata(entityName);
+      } catch (_) {}
+    }
+
+    function getLocalizedLabel(labelNode) {
+      if (!labelNode) return '';
+      if (typeof labelNode === 'string') return labelNode;
+      if (labelNode.UserLocalizedLabel && labelNode.UserLocalizedLabel.Label) return labelNode.UserLocalizedLabel.Label;
+      if (Array.isArray(labelNode.LocalizedLabels) && labelNode.LocalizedLabels.length > 0) {
+        return labelNode.LocalizedLabels[0]?.Label || '';
+      }
+      return '';
+    }
+
+    const displayName = getLocalizedLabel(entityDef?.DisplayName) || entityName;
+    const description = getLocalizedLabel(entityDef?.Description) || '-';
+    const schemaName = entityDef?.SchemaName || entityName;
+    const logicalName = entityDef?.LogicalName || entityName.toLowerCase();
+    const objectTypeCode = entityDef?.ObjectTypeCode !== undefined ? entityDef.ObjectTypeCode : '-';
+    const primaryIdAttribute = entityDef?.PrimaryIdAttribute || (logicalName ? `${logicalName}id` : '-');
+    const primaryNameAttribute = entityDef?.PrimaryNameAttribute || '-';
+    const entitySetName = entityDef?.EntitySetName || '-';
+    const ownershipType = entityDef?.OwnershipType || '-';
+    const isCustomEntity = entityDef?.IsCustomEntity !== undefined ? (entityDef.IsCustomEntity ? 'Yes' : 'No') : '-';
+    const isActivity = entityDef?.IsActivity !== undefined ? (entityDef.IsActivity ? 'Yes' : 'No') : '-';
+    const createdOn = entityDef?.CreatedOn ? new Date(entityDef.CreatedOn).toLocaleString() : '-';
+    const modifiedOn = entityDef?.ModifiedOn ? new Date(entityDef.ModifiedOn).toLocaleString() : '-';
+
+    const properties = [
+      { 'Property': 'Schema Name', 'Value': schemaName },
+      { 'Property': 'Logical Name', 'Value': logicalName },
+      { 'Property': 'Display Name', 'Value': displayName },
+      { 'Property': 'Description', 'Value': description },
+      { 'Property': 'Object Type Code (ETC)', 'Value': String(objectTypeCode) },
+      { 'Property': 'Primary ID Attribute', 'Value': primaryIdAttribute },
+      { 'Property': 'Primary Name Attribute', 'Value': primaryNameAttribute },
+      { 'Property': 'Entity Set Name', 'Value': entitySetName },
+      { 'Property': 'Ownership Type', 'Value': String(ownershipType) },
+      { 'Property': 'Is Custom Entity', 'Value': isCustomEntity },
+      { 'Property': 'Is Activity', 'Value': isActivity },
+      { 'Property': 'Created On', 'Value': createdOn },
+      { 'Property': 'Modified On', 'Value': modifiedOn }
+    ];
+
+    return {
+      entityName: schemaName || entityName,
+      hasXrm: true,
+      properties,
+      errors: []
+    };
+  } catch (error) {
+    return {
+      entityName: '',
+      hasXrm: false,
+      properties: [],
+      errors: ['Failed to collect entity definition: ' + (error?.message || String(error))]
+    };
+  }
+}
+
+async function showUserSecurityRoles() {
+  state.currentView = 'securityRoles';
+  updateModeButtons();
+  updateSearchPlaceholder();
+  updateCopyAllButtonState();
+  if (rolesModal) rolesModal.hidden = true; // Separate popup modal disabled for time being
+
+  setStatus('Retrieving current user security roles...');
+  errorsElement.innerHTML = '';
+  setActionButtonsDisabled(true);
+
+  try {
+    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) {
+      const mockRoles = [
+        { id: '11111111-2222-3333-4444-555555555555', name: 'System Administrator' },
+        { id: '22222222-3333-4444-5555-666666666666', name: 'System Customizer' },
+        { id: '33333333-4444-5555-6666-777777777777', name: 'Power Pilot Developer' },
+        { id: '44444444-5555-6666-7777-888888888888', name: 'Basic User' }
+      ];
+      state.userRoles = mockRoles;
+      state.rolesUserInfo = { userName: 'Current User (Dev Preview)', userId: '00000000-0000-0000-0000-000000000001' };
+      render();
+      updateCopyAllButtonState();
+      setStatus('User Security Roles: <strong class="status-highlight">4 security roles found</strong>', mockRoles.map((r) => r.name).join(', '));
+      return;
+    }
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error('Could not find the active tab.');
+    }
+
+    const frameResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      world: 'MAIN',
+      func: getUserSecurityRolesInPage
+    });
+
+    const responses = frameResults.map((frame) => frame.result).filter(Boolean);
+    const validResponse = responses.find((res) => res.roles && res.roles.length > 0) ||
+      responses.find((res) => res.hasXrm) ||
+      responses[0];
+
+    if (!validResponse) {
+      throw new Error('No response from any frame. Make sure you are on a Dynamics 365 or Power Apps page.');
+    }
+
+    if (!validResponse.hasXrm) {
+      setStatus('Xrm is not available. Please open a Dynamics 365 or Power Apps page.');
+      return;
+    }
+
+    const roles = validResponse.roles || [];
+    const userName = validResponse.userName || 'Current User';
+    const userId = validResponse.userId || '';
+
+    state.userRoles = roles;
+    state.rolesUserInfo = { userName, userId };
+
+    render();
+    updateCopyAllButtonState();
+
+    if (roles.length > 0) {
+      const summaryText = `${roles.length} security role${roles.length === 1 ? '' : 's'}`;
+      const roleNamesText = roles.map((r) => r.name).join(', ');
+      setStatus(`User Security Roles (${escapeHtml(userName)}): <strong class="status-highlight">${summaryText}</strong>`, roleNamesText);
+    } else {
+      setStatus(`No security roles found for ${escapeHtml(userName)}.`);
+    }
+  } catch (error) {
+    const message = error?.message || String(error);
+    renderErrors([message]);
+    setStatus('Unable to get user security roles: ' + message);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+function renderSecurityRolesView() {
+  const roles = state.userRoles || [];
+  const userInfo = state.rolesUserInfo || {};
+  const userName = userInfo.userName || 'Current User';
+  const userId = userInfo.userId || '';
+
+  if (roles.length === 0) {
+    resultsElement.innerHTML = `
+      <div class="empty-state">
+        <p style="margin: 0 0 6px; font-weight: 700; color: #1a3b8b;">No Security Roles Loaded</p>
+        <span style="font-size: 11px; color: #64779b;">Click USER SECURITY ROLES to load current user roles.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const query = state.searchText;
+  const filtered = query
+    ? roles.filter((r) => (r.name && r.name.toLowerCase().includes(query)) || (r.id && r.id.toLowerCase().includes(query)))
+    : roles;
+
+  const rolesHtml = filtered.length > 0
+    ? filtered.map((role) => {
+        const roleName = role.name || 'Unnamed Role';
+        const roleId = role.id ? role.id.replace(/[{}]/g, '').toLowerCase() : '';
+        return `
+          <div class="detail-row" style="padding: 7px 10px; margin-bottom: 4px; background: #f8fbff; border: 1px solid #e2ecf9; border-radius: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 12px; font-weight: 600; color: #172b53; word-break: break-word;">${escapeHtml(roleName)}</div>
+                ${roleId ? `<div style="font-size: 9.5px; color: #697d9e; font-family: Consolas, monospace;">${escapeHtml(roleId)}</div>` : ''}
+              </div>
+              <button type="button" class="copyable-text" data-copy-text="${escapeHtml(roleName)}" data-copy-message="Copied ${escapeHtml(roleName)}!" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 10px; border-radius: 6px; background: #ffffff; color: #2546a1; cursor: pointer; border: 1px solid #c8daf2; font-family: inherit; font-weight: 600; flex-shrink: 0;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('')
+    : '<div class="empty-state" style="padding: 12px 10px;">No matching security roles.</div>';
+
+  resultsElement.innerHTML = `
+    <div class="inspector-layout">
+      <section class="section-card">
+        <div class="section-heading-row">
+          <h2 class="section-title">Security Roles</h2>
+          <span class="section-badge">${filtered.length} / ${roles.length} Roles</span>
+        </div>
+        <div class="plugin-detail">
+          <div class="plugin-detail-header" style="margin-bottom: 10px;">
+            <div class="plugin-detail-heading">
+              <h3 class="plugin-detail-title" style="font-size: 13px;">${escapeHtml(userName)}</h3>
+              <p class="plugin-detail-subtitle">${userId ? `ID: ${escapeHtml(userId)}` : 'Logged-in Dataverse User'}</p>
+            </div>
+            <div class="plugin-detail-actions" style="display: flex; gap: 6px;">
+              <button type="button" class="btn" id="rolesViewExportBtn" style="min-height: 28px; padding: 4px 10px; font-size: 11px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Export Excel</span>
+              </button>
+            </div>
+          </div>
+          <div class="roles-embedded-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto;">
+            ${rolesHtml}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+
+  const exportBtn = resultsElement.querySelector('#rolesViewExportBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', exportRolesToExcel);
+  }
+}
+
+function openRolesModal(userName, userId, roles) {
+  if (!rolesModal) return;
+  if (rolesModalUserSubtitle) {
+    const cleanId = userId ? userId.replace(/[{}]/g, '').toLowerCase() : '';
+    rolesModalUserSubtitle.textContent = userName ? `${userName}${cleanId ? ` • ${cleanId}` : ''}` : 'Current User';
+    rolesModalUserSubtitle.title = cleanId ? `${userName} (${cleanId})` : userName || '';
+  }
+  renderRolesList();
+  rolesModal.hidden = false;
+  if (rolesSearchInput) {
+    setTimeout(() => rolesSearchInput.focus(), 80);
+  }
+}
+
+function closeRolesModal() {
+  if (rolesModal) {
+    rolesModal.hidden = true;
+  }
+}
+
+function renderRolesList() {
+  if (!rolesList) return;
+  const roles = state.userRoles || [];
+  const query = (state.rolesSearchText || '').trim().toLowerCase();
+  const filtered = query
+    ? roles.filter((r) => (r.name && r.name.toLowerCase().includes(query)) || (r.id && r.id.toLowerCase().includes(query)))
+    : roles;
+
+  if (rolesModalCountBadge) {
+    rolesModalCountBadge.textContent = `${filtered.length} / ${roles.length} Role${roles.length === 1 ? '' : 's'}`;
+  }
+
+  if (filtered.length === 0) {
+    rolesList.innerHTML = `<div class="empty-state" style="padding: 16px 10px;">${roles.length === 0 ? 'No security roles found for this user.' : 'No roles matching "' + escapeHtml(state.rolesSearchText) + '"'}</div>`;
+    return;
+  }
+
+  rolesList.innerHTML = filtered.map((role) => {
+    const roleName = role.name || 'Unnamed Role';
+    const roleId = role.id ? role.id.replace(/[{}]/g, '').toLowerCase() : '';
+    return `
+      <div class="role-card-item">
+        <div class="role-item-info">
+          <div class="role-item-name" title="${escapeHtml(roleName)}">${escapeHtml(roleName)}</div>
+          ${roleId ? `<div class="role-item-id" title="${escapeHtml(roleId)}">${escapeHtml(roleId)}</div>` : ''}
+        </div>
+        <button type="button" class="role-item-copy-btn" data-role-copy="${escapeHtml(roleName)}" title="Copy role name">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Copy</span>
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  rolesList.querySelectorAll('[data-role-copy]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const textToCopy = btn.getAttribute('data-role-copy') || '';
+      if (!textToCopy) return;
+      await writeClipboard(textToCopy);
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = `
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span>Copied!</span>
+      `;
+      btn.style.background = '#dcfce7';
+      btn.style.color = '#15803d';
+      btn.style.borderColor = '#86efac';
+      setTimeout(() => {
+        btn.innerHTML = originalHtml;
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+      }, 1500);
+    });
+  });
+}
+
+async function copyAllRolesToClipboard() {
+  const roles = state.userRoles || [];
+  if (roles.length === 0) {
+    setStatus('No security roles to copy.');
+    return;
+  }
+  const text = roles.map((r) => r.name).join('\n');
+  await writeClipboard(text);
+  setStatus(`Copied ${roles.length} role name(s) to clipboard!`, text);
+  flashStatusCopied();
+  if (copyAllRolesButton) {
+    const origHtml = copyAllRolesButton.innerHTML;
+    copyAllRolesButton.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <span>Copied All!</span>
+    `;
+    setTimeout(() => {
+      copyAllRolesButton.innerHTML = origHtml;
+    }, 1500);
+  }
+}
+
+function exportRolesToExcel() {
+  const roles = state.userRoles || [];
+  if (roles.length === 0) {
+    setStatus('No security roles to export.');
+    return;
+  }
+  const userName = state.rolesUserInfo?.userName || 'Current_User';
+  const userId = state.rolesUserInfo?.userId || '';
+
+  const rows = roles.map((role) => ({
+    'Role Name': role.name || '',
+    'Role ID': role.id ? role.id.replace(/[{}]/g, '').toLowerCase() : '',
+    'User Name': userName,
+    'User ID': userId ? userId.replace(/[{}]/g, '').toLowerCase() : ''
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Security Roles');
+
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const safeUserName = userName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `${safeUserName}_Security_Roles_${timestamp}.xlsx`;
+
+  XLSX.writeFile(workbook, filename);
+  setStatus(`Exported ${roles.length} security roles for ${userName} to Excel.`);
+}
+
+async function getUserSecurityRolesInPage() {
+  try {
+    function getXrmRoot() {
+      const candidates = [window, window.top, window.parent].filter(Boolean);
+      for (const candidate of candidates) {
+        try {
+          if (candidate && candidate.Xrm) {
+            return candidate.Xrm;
+          }
+        } catch (e) {
+          // Ignore cross-origin exceptions
+        }
+      }
+      return null;
+    }
+
+    function safeEscapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showFloatingRolesDialogInPage(doc, userName, userId, roles) {
+      if (!doc || !doc.body) return;
+      const existing = doc.getElementById('powerpilot-floating-roles-dialog');
+      if (existing) {
+        existing.remove();
+      }
+
+      if (!doc.getElementById('powerpilot-floating-roles-styles')) {
+        const style = doc.createElement('style');
+        style.id = 'powerpilot-floating-roles-styles';
+        style.textContent = `
+          @keyframes ppRolesFloatFadeIn {
+            from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          #powerpilot-floating-roles-dialog * { box-sizing: border-box; }
+          .pp-role-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; background: #f8fbff; border: 1px solid #e1edfc; border-radius: 8px; gap: 8px; margin-bottom: 6px; }
+          .pp-role-row:hover { background: #edf4fe; border-color: #bcd5f7; }
+          .pp-role-name { font-size: 12px; font-weight: 600; color: #172b53; word-break: break-word; }
+          .pp-role-id { font-size: 9.5px; color: #697d9e; font-family: Consolas, monospace; }
+          .pp-role-copy-btn { padding: 3px 8px; font-size: 10px; border-radius: 6px; background: #ffffff; color: #2546a1; border: 1px solid #c8daf2; cursor: pointer; font-weight: 600; flex-shrink: 0; transition: 0.15s; }
+          .pp-role-copy-btn:hover { background: #2546a1; color: #ffffff; }
+          .pp-header-btn { width: 24px; height: 24px; border-radius: 50%; border: none; background: #ebf2fc; color: #1e3a8a; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }
+          .pp-header-btn:hover { background: #d7e4fa; }
+        `;
+        doc.head.appendChild(style);
+      }
+
+      const dialog = doc.createElement('div');
+      dialog.id = 'powerpilot-floating-roles-dialog';
+      dialog.style.cssText = 'position: fixed; top: 75px; right: 28px; width: 370px; max-height: 520px; z-index: 9999999; background: #ffffff; border-radius: 16px; border: 1px solid #cce0ff; box-shadow: 0 16px 40px rgba(12, 24, 60, 0.22); display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #17253f; overflow: hidden; animation: ppRolesFloatFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);';
+
+      const roleCount = roles.length;
+      dialog.innerHTML = `
+        <div id="pp-roles-header" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: linear-gradient(135deg, #eef4ff 0%, #dce9fc 100%); border-bottom: 1px solid #d0e0f8; cursor: move; user-select: none;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 26px; height: 26px; border-radius: 8px; background: #2546a1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px;">🛡️</div>
+            <div>
+              <div style="font-size: 13px; font-weight: 700; color: #172b53;">Security Roles</div>
+              <div style="font-size: 10.5px; color: #5c6f93; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${safeEscapeHtml(userName)}">${safeEscapeHtml(userName || 'Current User')}</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #cde0fc; color: #1e3a8a;">${roleCount} Roles</span>
+            <button id="pp-roles-close" class="pp-header-btn" title="Close">✕</button>
+          </div>
+        </div>
+        <div style="padding: 8px 12px; background: #fbfdff; border-bottom: 1px solid #eaf0fb;">
+          <input id="pp-roles-search" type="text" placeholder="Search security roles..." style="width: 100%; padding: 6px 12px; border-radius: 999px; border: 1px solid #cbdcf2; font-size: 11.5px; outline: none;" />
+        </div>
+        <div id="pp-roles-list" style="flex: 1 1 auto; max-height: 320px; overflow-y: auto; padding: 10px 12px;">
+          ${roles.map((r) => `
+            <div class="pp-role-row" data-role-name="${safeEscapeHtml(r.name).toLowerCase()}" data-role-id="${safeEscapeHtml(r.id || '').toLowerCase()}">
+              <div style="min-width: 0; flex: 1;">
+                <div class="pp-role-name">${safeEscapeHtml(r.name)}</div>
+                ${r.id ? `<div class="pp-role-id">${safeEscapeHtml(r.id)}</div>` : ''}
+              </div>
+              <button type="button" class="pp-role-copy-btn" data-copy-val="${safeEscapeHtml(r.name)}">Copy</button>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f5f9ff; border-top: 1px solid #dbe7f8;">
+          <button id="pp-roles-copy-all" style="padding: 6px 12px; border-radius: 999px; background: #2546a1; color: #fff; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">Copy All Roles</button>
+          <button id="pp-roles-dismiss" style="padding: 6px 12px; border-radius: 999px; background: #e5edf9; color: #203560; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">Close</button>
+        </div>
+      `;
+
+      doc.body.appendChild(dialog);
+
+      const close = () => dialog.remove();
+      const closeBtn = dialog.querySelector('#pp-roles-close');
+      if (closeBtn) closeBtn.onclick = close;
+      const dismissBtn = dialog.querySelector('#pp-roles-dismiss');
+      if (dismissBtn) dismissBtn.onclick = close;
+
+      const searchInput = dialog.querySelector('#pp-roles-search');
+      if (searchInput) {
+        searchInput.oninput = (e) => {
+          const q = (e.target.value || '').trim().toLowerCase();
+          const rows = dialog.querySelectorAll('.pp-role-row');
+          rows.forEach((row) => {
+            const name = row.getAttribute('data-role-name') || '';
+            const id = row.getAttribute('data-role-id') || '';
+            row.style.display = (!q || name.includes(q) || id.includes(q)) ? 'flex' : 'none';
+          });
+        };
+      }
+
+      dialog.querySelectorAll('.pp-role-copy-btn').forEach((btn) => {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          const text = btn.getAttribute('data-copy-val') || '';
+          if (!text) return;
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch (_) {
+            const ta = doc.createElement('textarea');
+            ta.value = text;
+            doc.body.appendChild(ta);
+            ta.select();
+            doc.execCommand('copy');
+            ta.remove();
+          }
+          const orig = btn.textContent;
+          btn.textContent = 'Copied!';
+          btn.style.background = '#dcfce7';
+          btn.style.color = '#15803d';
+          setTimeout(() => {
+            btn.textContent = orig;
+            btn.style.background = '';
+            btn.style.color = '';
+          }, 1500);
+        };
+      });
+
+      const copyAllBtn = dialog.querySelector('#pp-roles-copy-all');
+      if (copyAllBtn) {
+        copyAllBtn.onclick = async () => {
+          const allText = roles.map((r) => r.name).join('\n');
+          try {
+            await navigator.clipboard.writeText(allText);
+          } catch (_) {
+            const ta = doc.createElement('textarea');
+            ta.value = allText;
+            doc.body.appendChild(ta);
+            ta.select();
+            doc.execCommand('copy');
+            ta.remove();
+          }
+          const orig = copyAllBtn.textContent;
+          copyAllBtn.textContent = 'Copied All!';
+          setTimeout(() => {
+            copyAllBtn.textContent = orig;
+          }, 1500);
+        };
+      }
+
+      const header = dialog.querySelector('#pp-roles-header');
+      if (header) {
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let initialLeft = 0;
+        let initialTop = 0;
+
+        header.onmousedown = (e) => {
+          if (e.target.tagName === 'BUTTON') return;
+          isDragging = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          const rect = dialog.getBoundingClientRect();
+          initialLeft = rect.left;
+          initialTop = rect.top;
+          dialog.style.left = `${initialLeft}px`;
+          dialog.style.top = `${initialTop}px`;
+          dialog.style.right = 'auto';
+
+          const onMouseMove = (moveEvent) => {
+            if (!isDragging) return;
+            const dx = moveEvent.clientX - startX;
+            const dy = moveEvent.clientY - startY;
+            dialog.style.left = `${Math.max(10, Math.min(window.innerWidth - dialog.offsetWidth - 10, initialLeft + dx))}px`;
+            dialog.style.top = `${Math.max(10, Math.min(window.innerHeight - dialog.offsetHeight - 10, initialTop + dy))}px`;
+          };
+
+          const onMouseUp = () => {
+            isDragging = false;
+            doc.removeEventListener('mousemove', onMouseMove);
+            doc.removeEventListener('mouseup', onMouseUp);
+          };
+
+          doc.addEventListener('mousemove', onMouseMove);
+          doc.addEventListener('mouseup', onMouseUp);
+        };
+      }
+    }
+
+    const xrm = getXrmRoot();
+    if (!xrm || !xrm.Utility || typeof xrm.Utility.getGlobalContext !== 'function') {
+      return {
+        hasXrm: false,
+        userName: '',
+        userId: '',
+        roles: [],
+        error: 'Xrm is not available.'
+      };
+    }
+
+    const globalContext = xrm.Utility.getGlobalContext();
+    const userSettings = globalContext.userSettings || {};
+    const userName = userSettings.userName || '';
+    const rawUserId = userSettings.userId || '';
+    const userId = rawUserId ? rawUserId.replace(/[{}]/g, '').toLowerCase() : '';
+
+    let roles = [];
+
+    // 1. Try userSettings.roles
+    if (userSettings.roles) {
+      try {
+        if (typeof userSettings.roles.forEach === 'function') {
+          userSettings.roles.forEach((r) => {
+            if (r && (r.name || r.id)) {
+              roles.push({ id: (r.id || r.roleid || '').replace(/[{}]/g, '').toLowerCase(), name: r.name || 'Role' });
+            }
+          });
+        } else if (typeof userSettings.roles.getLength === 'function') {
+          for (let i = 0; i < userSettings.roles.getLength(); i++) {
+            const r = userSettings.roles.get(i);
+            if (r && (r.name || r.id)) {
+              roles.push({ id: (r.id || r.roleid || '').replace(/[{}]/g, '').toLowerCase(), name: r.name || 'Role' });
+            }
+          }
+        } else if (Array.isArray(userSettings.roles)) {
+          userSettings.roles.forEach((r) => {
+            if (r && (r.name || r.id)) {
+              roles.push({ id: (r.id || r.roleid || '').replace(/[{}]/g, '').toLowerCase(), name: r.name || 'Role' });
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 2. Try userSettings.securityRoleNames fallback
+    if (roles.length === 0 && Array.isArray(userSettings.securityRoleNames) && userSettings.securityRoleNames.length > 0) {
+      const ids = Array.isArray(userSettings.securityRoles) ? userSettings.securityRoles : [];
+      roles = userSettings.securityRoleNames.map((name, i) => ({
+        name,
+        id: (ids[i] || '').replace(/[{}]/g, '').toLowerCase()
+      }));
+    }
+
+    // 3. Web API fallback
+    if (roles.length === 0 && userId) {
+      try {
+        const clientUrl = globalContext.getClientUrl();
+        const res = await fetch(`${clientUrl}/api/data/v9.2/systemusers(${userId})/systemuserroles_association?$select=roleid,name`, {
+          headers: { Accept: 'application/json', 'OData-MaxVersion': '4.0', 'OData-Version': '4.0' },
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.value)) {
+            roles = json.value.map((r) => ({
+              id: (r.roleid || '').replace(/[{}]/g, '').toLowerCase(),
+              name: r.name || 'Role'
+            }));
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Deduplicate and sort roles alphabetically
+    const roleMap = new Map();
+    roles.forEach((r) => {
+      const key = (r.name || '').trim().toLowerCase();
+      if (key && !roleMap.has(key)) {
+        roleMap.set(key, { name: r.name.trim(), id: r.id || '' });
+      }
+    });
+    const uniqueRoles = Array.from(roleMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Separate in-page popup disabled for time being; remove any existing one
+    try {
+      const doc = window.top.document || document;
+      const existing = doc.getElementById('powerpilot-floating-roles-dialog');
+      if (existing) {
+        existing.remove();
+      }
+    } catch (_) {}
+
+    return {
+      hasXrm: true,
+      userName,
+      userId,
+      roles: uniqueRoles
+    };
+  } catch (error) {
+    return {
+      hasXrm: false,
+      userName: '',
+      userId: '',
+      roles: [],
+      error: error?.message || String(error)
+    };
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.__powerPilot__ = {
+    openRolesModal,
+    closeRolesModal,
+    renderRolesList,
+    state
+  };
+}
+
+
+

@@ -253,14 +253,63 @@
       }
 
       .status {
-        margin: 2px 0 10px;
-        padding: 10px 12px;
+        position: relative;
+        margin: 6px 0 10px;
+        padding: 9px 12px;
         background: #f7fbff;
         border: 1px solid #dce8ff;
-        border-radius: 14px;
-        font-size: 11px;
-        line-height: 1.4;
-        color: var(--muted);
+        border-radius: 12px;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: var(--text);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        word-break: break-all;
+        user-select: text;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 36px;
+      }
+
+      .status:hover {
+        background: #edf5ff;
+        border-color: #a3c4f7;
+        box-shadow: 0 2px 8px rgba(37, 70, 161, 0.1);
+      }
+
+      .status:active {
+        transform: scale(0.995);
+      }
+
+      .status.status-copied-flash {
+        background: #f0fdf4;
+        border-color: #86efac;
+      }
+
+      .status-text {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .status-highlight {
+        color: #1a3b8b;
+        font-weight: 700;
+      }
+
+      .status-copy-btn {
+        flex: 0 0 auto;
+        color: #64748b;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.15s ease, transform 0.15s ease;
+      }
+
+      .status:hover .status-copy-btn {
+        color: #1d4ed8;
+        transform: scale(1.1);
       }
       
       .results-container {
@@ -766,6 +815,251 @@
       .github-btn:hover svg {
         transform: scale(1.1);
       }
+
+      /* Floating Modal for User Security Roles */
+      .roles-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        z-index: 999;
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-radius: 24px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        animation: rolesFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .roles-modal-backdrop[hidden] {
+        display: none !important;
+      }
+
+      @keyframes rolesFadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .roles-modal-card {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        background: #ffffff;
+        border-radius: 18px;
+        border: 1px solid #d8e5f8;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.22);
+        overflow: hidden;
+      }
+
+      .roles-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        background: linear-gradient(135deg, #f0f5ff 0%, #e5eeff 100%);
+        border-bottom: 1px solid #dbe6f8;
+      }
+
+      .roles-modal-title-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .roles-modal-icon-badge {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: #2546a1;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .roles-modal-title {
+        margin: 0;
+        font-size: 13.5px;
+        font-weight: 700;
+        color: #172b53;
+        line-height: 1.2;
+      }
+
+      .roles-modal-subtitle {
+        font-size: 10.5px;
+        color: #5c6f93;
+        line-height: 1.2;
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .roles-modal-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .roles-count-badge {
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: #dbe8fe;
+        color: #1a3b8b;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .roles-close-btn {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #e2ebf8;
+        color: #202a5c;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: 0.15s ease;
+      }
+
+      .roles-close-btn:hover {
+        background: #cfdef4;
+        color: #0d1b3e;
+      }
+
+      .roles-search-bar {
+        position: relative;
+        padding: 8px 12px;
+        background: #fafcff;
+        border-bottom: 1px solid #eef3fb;
+      }
+
+      .roles-search-bar svg {
+        position: absolute;
+        left: 20px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #7b93b8;
+        pointer-events: none;
+      }
+
+      .roles-search-bar input {
+        width: 100%;
+        padding: 5px 10px 5px 28px;
+        border-radius: 999px;
+        border: 1px solid #cfdeee;
+        background: #ffffff;
+        font-size: 11.5px;
+        color: #17253f;
+        outline: none;
+      }
+
+      .roles-search-bar input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+      }
+
+      .roles-list-container {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 260px;
+      }
+
+      .role-card-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 10px;
+        background: #f8fbff;
+        border: 1px solid #e2ecf9;
+        border-radius: 9px;
+        transition: 0.15s ease;
+        gap: 8px;
+      }
+
+      .role-card-item:hover {
+        background: #edf4fe;
+        border-color: #cbdcf4;
+      }
+
+      .role-item-info {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .role-item-name {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: #1b2f56;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .role-item-id {
+        font-size: 9.5px;
+        color: #7187aa;
+        font-family: Consolas, monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .role-item-copy-btn {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 3px 7px;
+        font-size: 10px;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #2546a1;
+        border: 1px solid #d0ddf2;
+        cursor: pointer;
+        font-weight: 600;
+        transition: 0.15s ease;
+      }
+
+      .role-item-copy-btn:hover {
+        background: #2546a1;
+        color: #ffffff;
+        border-color: #2546a1;
+      }
+
+      .roles-modal-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f4f8ff;
+        border-top: 1px solid #dce8f8;
+      }
+
+      .roles-footer-btn {
+        flex: 1;
+        min-height: 30px;
+        font-size: 11px;
+        padding: 4px 10px;
+        gap: 4px;
+      }
     </style>
   </head>
   <body>
@@ -785,7 +1079,29 @@
         <select id="entitySelect" aria-label="Entity"></select>
       </div>
 
-      
+      <div class="status" id="status" role="button" tabindex="0" title="Click to copy">
+        <span class="status-text" id="statusText">Open a Dynamics 365 form, then click Entity Info or Record Id.</span>
+        <span class="status-copy-btn" id="statusCopyIcon" title="Click to copy">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </span>
+      </div>
+      <div id="errors"></div>
+
+      <div class="sub-header">
+        <span>Entity Management</span>
+        <div class="sub-header-line"></div>
+      </div>
+      <div class="action-grid-2col">
+        <button id="entityInfoButton" class="btn" aria-pressed="false" title="Show Entity schema name and metadata">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span>Entity Info</span>
+        </button>
+        <button id="recordIdButton" class="btn" aria-pressed="false" title="Show active Record ID">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+          <span>Record Id</span>
+        </button>
+      </div>
+
       <div class="sub-header">
         <span>Form Management</span>
         <div class="sub-header-line"></div>
@@ -821,13 +1137,28 @@
       </div>
 
       <div class="sub-header">
-        <span>Exports</span>
+        <span>Export Metadata</span>
+        <div class="sub-header-line"></div>
+      </div>
+      <div class="action-grid-2col">
+        <button id="fieldsExportButton" class="btn" title="Export current entity fields (Display Name, Schema Name, Data Type) to Excel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Fields Export</span>
+        </button>
+        <button id="entityExportButton" class="btn" title="Export current entity definition metadata to Excel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+          <span>Entity Export</span>
+        </button>
+      </div>
+
+      <div class="sub-header">
+        <span>User Security</span>
         <div class="sub-header-line"></div>
       </div>
       <div class="action-grid-1col">
-        <button id="exportAllFieldsButton" class="btn" title="Exports all fields defined on the entity (not just fields on this form)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          <span>Export All Fields</span>
+        <button id="userSecurityRolesButton" class="btn" title="Show current user security roles in a floating popup">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>User Security Roles</span>
         </button>
       </div>
 
@@ -855,9 +1186,6 @@
           aria-label="Search items or schema names..."
         />
       </div>
-
-      <div class="status" id="status">Open a Dynamics 365 form, then click Option Set.</div>
-      <div id="errors"></div>
       
       <div class="results-container">
         <div id="results" class="results">
@@ -884,6 +1212,11 @@
           <span>Submit Feedback / Issues</span>
         </a>
       </div>
+      <!-- Separate Floating Modal for User Security Roles (Disabled for time being)
+      <div id="rolesModal" class="roles-modal-backdrop" hidden>
+        ...
+      </div>
+      -->
     </div>
     <script src="lib/xlsx.full.min.js"></script>
     <script src="popup.js"></script>

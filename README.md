@@ -11,12 +11,17 @@ A browser extension scaffold for Chrome and Edge that helps inspect Dynamics 365
 ## How to use
 1. Open a Dynamics 365 or Power Platform form page.
 2. Click the extension icon.
-3. Press `OPTION SET` to inspect option set values for the active form entity.
-4. Press `PLUGIN EXPLORER` to inspect registered custom plug-in types, assemblies, steps, and step images.
-5. Press `ENABLE FIELDS` to unlock disabled fields on the active form.
-6. Press `DISABLE MANDATORY FIELDS` to convert Business Required fields to Optional.
-7. Press `SHOW SCHEMA NAMES` to toggle field schema names on the active form.
-8. Click `Submit Feedback / Issues` at the bottom of the popup to report bugs or submit feature requests on GitHub.
+3. Press `ENTITY INFO` to inspect and copy the Entity schema name, logical name, display name, ETC, and primary attributes.
+4. Press `RECORD ID` to inspect and copy the active Record ID (clean GUID and formatted GUID).
+5. Press `OPTION SET` to inspect option set values for the active form entity.
+6. Press `PLUGIN EXPLORER` to inspect registered custom plug-in types, assemblies, steps, and step images.
+7. Press `ENABLE FIELDS` to unlock disabled fields on the active form.
+8. Press `DISABLE MANDATORY FIELDS` to convert Business Required fields to Optional.
+9. Press `SHOW SCHEMA NAMES` to toggle field schema names on the active form.
+10. Press `FIELDS EXPORT` to export all fields from the active entity (Display Name, Schema Name, Data Type) directly to an Excel (.xlsx) file.
+11. Press `ENTITY EXPORT` to export entity metadata definition to Excel.
+12. Press `USER SECURITY ROLES` to list the current user's security roles directly inside the main popup with search, one-click copy, copy all, and Excel export.
+13. Click `Submit Feedback / Issues` at the bottom of the popup to report bugs or submit feature requests on GitHub.
 
 ## Feedback & Issues
 Found a bug or have a suggestion? Submit an issue directly on GitHub:
@@ -46,6 +51,8 @@ Accelerate form inspections, troubleshooting, and metadata discovery directly in
 ----------------------------------------------------------------
 
 ⚡ FORM & FIELD PRODUCTIVITY
+• Entity Info: Instant one-click inspection and clipboard copy of the Entity Schema Name, Logical Name, Display Name, Object Type Code, and Primary Attributes.
+• Record ID: Instant one-click inspection and copy of the active record GUID (both clean raw GUID and formatted GUID) with direct record URL.
 • Show Schema Names: Toggle and overlay logical/schema names directly on form labels for rapid scripting and API development.
 • Unlock Disabled Fields: Instantly enable read-only or system-locked fields to test updates and integrations.
 • Disable Mandatory Requirements: Switch business-required fields to optional on the fly for testing data entry without validation blockers.
@@ -55,6 +62,11 @@ Accelerate form inspections, troubleshooting, and metadata discovery directly in
 • Extract and review all Option Sets, Choices, and Multi-Select picklists for the active entity.
 • Search and filter choice labels and integer underlying values in real time.
 • One-click export and clipboard copy for rapid documentation and development.
+
+🛡️ USER SECURITY
+• Current User Security Roles: Inspect logged-in user security roles directly inside the main popup inspector.
+• Instant Search & Filter: Filter roles by name or GUID in real-time.
+• One-Click Copy & Export: Copy individual role names, copy all roles to clipboard, or export full security roles list to Excel (.xlsx).
 
 🧩 PLUGIN EXPLORER
 • Browse custom and Out-of-the-Box (OOB) plug-in types, assemblies, steps, and step images.
